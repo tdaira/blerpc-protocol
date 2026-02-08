@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  python-lint:
+    name: Python Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install ruff
+      - name: Ruff lint
+        run: ruff check src/ tests/python/
+      - name: Ruff format check
+        run: ruff format --check src/ tests/python/
+
+  python-test:
+    name: Python Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install package and test dependencies
+        run: pip install -e . pytest
+      - name: Run unit tests
+        run: python -m pytest tests/python/ -v
+
+  c-lint:
+    name: C Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: clang-format check
+        run: |
+          clang-format --dry-run --Werror \
+            c/include/blerpc_protocol/container.h \
+            c/include/blerpc_protocol/command.h \
+            c/src/container.c \
+            c/src/command.c \
+            tests/c/test_standalone.c
+
+  c-test:
+    name: C Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run standalone tests
+        run: |
+          gcc -o /tmp/test_standalone \
+            tests/c/test_standalone.c \
+            c/src/container.c \
+            c/src/command.c \
+            -Ic/include -Wall -Wextra -Werror -std=c11
+          /tmp/test_standalone

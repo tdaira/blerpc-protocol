@@ -1,0 +1,12 @@
+config BLERPC_PROTOCOL
+	bool "blerpc protocol library (container + command layers)"
+	default y
+	help
+	  Enable the blerpc container and command protocol layers.
+
+config BLERPC_PROTOCOL_ASSEMBLER_BUF_SIZE
+	int "Container assembler buffer size"
+	default 4096
+	depends on BLERPC_PROTOCOL
+	help
+	  Size of the container assembler buffer in bytes.

@@ -1,0 +1,11 @@
+if(CONFIG_BLERPC_PROTOCOL)
+  zephyr_library()
+  zephyr_library_sources(
+    src/container.c
+    src/command.c
+  )
+  zephyr_include_directories(include)
+  zephyr_compile_definitions(
+    CONTAINER_ASSEMBLER_BUF_SIZE=${CONFIG_BLERPC_PROTOCOL_ASSEMBLER_BUF_SIZE}
+  )
+endif()
