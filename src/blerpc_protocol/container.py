@@ -29,6 +29,7 @@ class ControlCmd(IntEnum):
     TIMEOUT = 0x1
     STREAM_END_C2P = 0x2
     STREAM_END_P2C = 0x3
+    CAPABILITIES = 0x4
 
 
 # Header sizes
@@ -288,4 +289,33 @@ def make_stream_end_p2c(transaction_id: int, sequence_number: int = 0) -> Contai
         container_type=ContainerType.CONTROL,
         control_cmd=ControlCmd.STREAM_END_P2C,
         payload=b"",
+    )
+
+
+def make_capabilities_request(
+    transaction_id: int, sequence_number: int = 0
+) -> Container:
+    """Create a capabilities request control container (Central -> Peripheral)."""
+    return Container(
+        transaction_id=transaction_id,
+        sequence_number=sequence_number,
+        container_type=ContainerType.CONTROL,
+        control_cmd=ControlCmd.CAPABILITIES,
+        payload=b"",
+    )
+
+
+def make_capabilities_response(
+    transaction_id: int,
+    max_request_payload_size: int,
+    max_response_payload_size: int,
+    sequence_number: int = 0,
+) -> Container:
+    """Create a capabilities response control container (Peripheral -> Central)."""
+    return Container(
+        transaction_id=transaction_id,
+        sequence_number=sequence_number,
+        container_type=ContainerType.CONTROL,
+        control_cmd=ControlCmd.CAPABILITIES,
+        payload=struct.pack("<HH", max_request_payload_size, max_response_payload_size),
     )
