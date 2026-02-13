@@ -6,6 +6,7 @@ import pytest
 
 from blerpc_protocol.container import (
     ATT_OVERHEAD,
+    BLERPC_ERROR_RESPONSE_TOO_LARGE,
     FIRST_HEADER_SIZE,
     SUBSEQUENT_HEADER_SIZE,
     Container,
@@ -13,6 +14,7 @@ from blerpc_protocol.container import (
     ContainerSplitter,
     ContainerType,
     ControlCmd,
+    make_error_response,
     make_stream_end_c2p,
     make_stream_end_p2c,
     make_timeout_request,
@@ -362,3 +364,17 @@ class TestControlContainers:
     def test_stream_end_p2c(self):
         c = make_stream_end_p2c(transaction_id=3)
         assert c.control_cmd == ControlCmd.STREAM_END_P2C
+
+    def test_error_response(self):
+        c = make_error_response(
+            transaction_id=10, error_code=BLERPC_ERROR_RESPONSE_TOO_LARGE
+        )
+        assert c.container_type == ContainerType.CONTROL
+        assert c.control_cmd == ControlCmd.ERROR
+        assert c.payload == bytes([0x01])
+
+        data = c.serialize()
+        c2 = Container.deserialize(data)
+        assert c2.container_type == ContainerType.CONTROL
+        assert c2.control_cmd == ControlCmd.ERROR
+        assert c2.payload == bytes([BLERPC_ERROR_RESPONSE_TOO_LARGE])

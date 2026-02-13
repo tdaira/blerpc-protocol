@@ -30,6 +30,11 @@ class ControlCmd(IntEnum):
     STREAM_END_C2P = 0x2
     STREAM_END_P2C = 0x3
     CAPABILITIES = 0x4
+    ERROR = 0x5
+
+
+# Error codes for ControlCmd.ERROR
+BLERPC_ERROR_RESPONSE_TOO_LARGE = 0x01
 
 
 # Header sizes
@@ -318,4 +323,17 @@ def make_capabilities_response(
         container_type=ContainerType.CONTROL,
         control_cmd=ControlCmd.CAPABILITIES,
         payload=struct.pack("<HH", max_request_payload_size, max_response_payload_size),
+    )
+
+
+def make_error_response(
+    transaction_id: int, error_code: int, sequence_number: int = 0
+) -> Container:
+    """Create an error control container (Peripheral -> Central)."""
+    return Container(
+        transaction_id=transaction_id,
+        sequence_number=sequence_number,
+        container_type=ContainerType.CONTROL,
+        control_cmd=ControlCmd.ERROR,
+        payload=bytes([error_code]),
     )
