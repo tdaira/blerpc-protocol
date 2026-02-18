@@ -21,9 +21,13 @@ extern "C" {
 #define CONTROL_CMD_STREAM_END_P2C 0x03
 #define CONTROL_CMD_CAPABILITIES 0x04
 #define CONTROL_CMD_ERROR 0x05
+#define CONTROL_CMD_KEY_EXCHANGE 0x06
 
 /* Error codes for CONTROL_CMD_ERROR */
 #define BLERPC_ERROR_RESPONSE_TOO_LARGE 0x01
+
+/* Capabilities flags (bit field) */
+#define CAPABILITY_FLAG_ENCRYPTION_SUPPORTED 0x0001
 
 /* Header sizes */
 #define CONTAINER_FIRST_HEADER_SIZE 6

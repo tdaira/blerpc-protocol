@@ -3,6 +3,7 @@
 from blerpc_protocol.command import CommandPacket, CommandType
 from blerpc_protocol.container import (
     ATT_OVERHEAD,
+    CAPABILITY_FLAG_ENCRYPTION_SUPPORTED,
     CONTROL_HEADER_SIZE,
     FIRST_HEADER_SIZE,
     SUBSEQUENT_HEADER_SIZE,
@@ -11,14 +12,28 @@ from blerpc_protocol.container import (
     ContainerSplitter,
     ContainerType,
     ControlCmd,
+    make_capabilities_request,
+    make_capabilities_response,
+    make_error_response,
+    make_key_exchange,
     make_stream_end_c2p,
     make_stream_end_p2c,
     make_timeout_request,
     make_timeout_response,
 )
+from blerpc_protocol.crypto import (
+    BlerpcCrypto,
+    BlerpcCryptoSession,
+    CentralKeyExchange,
+    PeripheralKeyExchange,
+)
 
 __all__ = [
     "ATT_OVERHEAD",
+    "BlerpcCrypto",
+    "BlerpcCryptoSession",
+    "CAPABILITY_FLAG_ENCRYPTION_SUPPORTED",
+    "CentralKeyExchange",
     "CONTROL_HEADER_SIZE",
     "FIRST_HEADER_SIZE",
     "SUBSEQUENT_HEADER_SIZE",
@@ -29,8 +44,13 @@ __all__ = [
     "ContainerSplitter",
     "ContainerType",
     "ControlCmd",
+    "make_capabilities_request",
+    "make_capabilities_response",
+    "make_error_response",
+    "make_key_exchange",
     "make_stream_end_c2p",
     "make_stream_end_p2c",
     "make_timeout_request",
     "make_timeout_response",
+    "PeripheralKeyExchange",
 ]

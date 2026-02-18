@@ -313,6 +313,43 @@ static void test_command_data_len_little_endian(void)
     assert(buf[4] == 0x01);
 }
 
+/* ===== Encryption constants tests ===== */
+
+static void test_key_exchange_constant(void)
+{
+    assert(CONTROL_CMD_KEY_EXCHANGE == 0x06);
+}
+
+static void test_capability_flag_constant(void)
+{
+    assert(CAPABILITY_FLAG_ENCRYPTION_SUPPORTED == 0x0001);
+}
+
+static void test_control_key_exchange_container(void)
+{
+    /* Build a KEY_EXCHANGE control container */
+    uint8_t payload[] = {0x01, /* step 1 */
+                         0xAA, 0xBB, 0xCC}; /* dummy pubkey fragment */
+    struct container_header hdr = {
+        .transaction_id = 7,
+        .sequence_number = 0,
+        .type = CONTAINER_TYPE_CONTROL,
+        .control_cmd = CONTROL_CMD_KEY_EXCHANGE,
+        .payload_len = 4,
+        .payload = payload,
+    };
+    uint8_t buf[32];
+    int n = container_serialize(&hdr, buf, sizeof(buf));
+    assert(n > 0);
+
+    struct container_header parsed;
+    assert(container_parse_header(buf, (size_t)n, &parsed) == 0);
+    assert(parsed.type == CONTAINER_TYPE_CONTROL);
+    assert(parsed.control_cmd == CONTROL_CMD_KEY_EXCHANGE);
+    assert(parsed.payload_len == 4);
+    assert(parsed.payload[0] == 0x01);
+}
+
 int main(void)
 {
     printf("Container tests:\n");
@@ -335,6 +372,11 @@ int main(void)
     TEST(test_command_empty_data);
     TEST(test_command_parse_too_short);
     TEST(test_command_data_len_little_endian);
+
+    printf("\nEncryption constants tests:\n");
+    TEST(test_key_exchange_constant);
+    TEST(test_capability_flag_constant);
+    TEST(test_control_key_exchange_container);
 
     printf("\n%d/%d tests passed\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;

@@ -4,6 +4,9 @@ if(CONFIG_BLERPC_PROTOCOL)
     src/container.c
     src/command.c
   )
+  if(CONFIG_BLERPC_PROTOCOL_CRYPTO)
+    zephyr_library_sources(src/crypto.c)
+  endif()
   zephyr_include_directories(include)
   zephyr_compile_definitions(
     CONTAINER_ASSEMBLER_BUF_SIZE=${CONFIG_BLERPC_PROTOCOL_ASSEMBLER_BUF_SIZE}

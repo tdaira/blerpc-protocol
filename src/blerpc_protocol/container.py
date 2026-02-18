@@ -31,10 +31,14 @@ class ControlCmd(IntEnum):
     STREAM_END_P2C = 0x3
     CAPABILITIES = 0x4
     ERROR = 0x5
+    KEY_EXCHANGE = 0x6
 
 
 # Error codes for ControlCmd.ERROR
 BLERPC_ERROR_RESPONSE_TOO_LARGE = 0x01
+
+# Capabilities flags (bit field)
+CAPABILITY_FLAG_ENCRYPTION_SUPPORTED = 0x0001
 
 
 # Header sizes
@@ -298,15 +302,24 @@ def make_stream_end_p2c(transaction_id: int, sequence_number: int = 0) -> Contai
 
 
 def make_capabilities_request(
-    transaction_id: int, sequence_number: int = 0
+    transaction_id: int,
+    max_request_payload_size: int = 0,
+    max_response_payload_size: int = 0,
+    flags: int = 0,
+    sequence_number: int = 0,
 ) -> Container:
-    """Create a capabilities request control container (Central -> Peripheral)."""
+    """Create a capabilities request control container (Central -> Peripheral).
+
+    6-byte payload: [max_req:u16LE][max_resp:u16LE][flags:u16LE]
+    """
     return Container(
         transaction_id=transaction_id,
         sequence_number=sequence_number,
         container_type=ContainerType.CONTROL,
         control_cmd=ControlCmd.CAPABILITIES,
-        payload=b"",
+        payload=struct.pack(
+            "<HHH", max_request_payload_size, max_response_payload_size, flags
+        ),
     )
 
 
@@ -314,15 +327,21 @@ def make_capabilities_response(
     transaction_id: int,
     max_request_payload_size: int,
     max_response_payload_size: int,
+    flags: int = 0,
     sequence_number: int = 0,
 ) -> Container:
-    """Create a capabilities response control container (Peripheral -> Central)."""
+    """Create a capabilities response control container (Peripheral -> Central).
+
+    6-byte payload: [max_req:u16LE][max_resp:u16LE][flags:u16LE]
+    """
     return Container(
         transaction_id=transaction_id,
         sequence_number=sequence_number,
         container_type=ContainerType.CONTROL,
         control_cmd=ControlCmd.CAPABILITIES,
-        payload=struct.pack("<HH", max_request_payload_size, max_response_payload_size),
+        payload=struct.pack(
+            "<HHH", max_request_payload_size, max_response_payload_size, flags
+        ),
     )
 
 
@@ -336,4 +355,17 @@ def make_error_response(
         container_type=ContainerType.CONTROL,
         control_cmd=ControlCmd.ERROR,
         payload=bytes([error_code]),
+    )
+
+
+def make_key_exchange(
+    transaction_id: int, payload: bytes, sequence_number: int = 0
+) -> Container:
+    """Create a key exchange control container."""
+    return Container(
+        transaction_id=transaction_id,
+        sequence_number=sequence_number,
+        container_type=ContainerType.CONTROL,
+        control_cmd=ControlCmd.KEY_EXCHANGE,
+        payload=payload,
     )

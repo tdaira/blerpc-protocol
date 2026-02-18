@@ -10,3 +10,11 @@ config BLERPC_PROTOCOL_ASSEMBLER_BUF_SIZE
 	depends on BLERPC_PROTOCOL
 	help
 	  Size of the container assembler buffer in bytes.
+
+config BLERPC_PROTOCOL_CRYPTO
+	bool "blerpc E2E encryption support"
+	default n
+	depends on BLERPC_PROTOCOL
+	help
+	  Enable E2E encryption using X25519, Ed25519, AES-128-GCM, HKDF-SHA256.
+	  Requires PSA Crypto API (mbedTLS).
