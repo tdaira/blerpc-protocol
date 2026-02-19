@@ -30,7 +30,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install package and test dependencies
-        run: pip install -e . pytest
+        run: pip install -e . pytest pytest-asyncio
       - name: Run unit tests
         run: python -m pytest tests/python/ -v
 
