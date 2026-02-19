@@ -6,8 +6,8 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 
 from blerpc_protocol.container import (
-    Container,
     CAPABILITY_FLAG_ENCRYPTION_SUPPORTED,
+    Container,
     ControlCmd,
     make_capabilities_request,
     make_capabilities_response,
@@ -40,7 +40,7 @@ class TestControlCmdKeyExchange:
         assert c.payload == payload
 
     def test_key_exchange_roundtrip(self):
-        payload = b"\x02" + b"\xAA" * 128
+        payload = b"\x02" + b"\xaa" * 128
         c = make_key_exchange(transaction_id=10, payload=payload)
         data = c.serialize()
         c2 = Container.deserialize(data)
@@ -159,24 +159,24 @@ class TestEd25519:
 class TestSessionKeyDerivation:
     def test_derive_produces_16_bytes(self):
         shared = b"\x42" * 32
-        central_pub = b"\xAA" * 32
-        peripheral_pub = b"\xBB" * 32
+        central_pub = b"\xaa" * 32
+        peripheral_pub = b"\xbb" * 32
         key = BlerpcCrypto.derive_session_key(shared, central_pub, peripheral_pub)
         assert len(key) == 16
 
     def test_same_inputs_same_key(self):
         shared = b"\x42" * 32
-        c_pub = b"\xAA" * 32
-        p_pub = b"\xBB" * 32
+        c_pub = b"\xaa" * 32
+        p_pub = b"\xbb" * 32
         key1 = BlerpcCrypto.derive_session_key(shared, c_pub, p_pub)
         key2 = BlerpcCrypto.derive_session_key(shared, c_pub, p_pub)
         assert key1 == key2
 
     def test_different_pubkeys_different_key(self):
         shared = b"\x42" * 32
-        c_pub_a = b"\xAA" * 32
-        c_pub_b = b"\xCC" * 32
-        p_pub = b"\xBB" * 32
+        c_pub_a = b"\xaa" * 32
+        c_pub_b = b"\xcc" * 32
+        p_pub = b"\xbb" * 32
         key1 = BlerpcCrypto.derive_session_key(shared, c_pub_a, p_pub)
         key2 = BlerpcCrypto.derive_session_key(shared, c_pub_b, p_pub)
         assert key1 != key2
@@ -229,7 +229,7 @@ class TestAesGcmEncryptDecrypt:
 
     def test_large_plaintext(self):
         key = b"\x01" * 16
-        plaintext = b"\xFF" * 10000
+        plaintext = b"\xff" * 10000
         encrypted = BlerpcCrypto.encrypt_command(key, 0, DIRECTION_C2P, plaintext)
         counter, decrypted = BlerpcCrypto.decrypt_command(key, DIRECTION_C2P, encrypted)
         assert decrypted == plaintext
@@ -266,7 +266,7 @@ class TestConfirmation:
 
 class TestStepPayloads:
     def test_step1_build_parse(self):
-        pubkey = b"\xAA" * 32
+        pubkey = b"\xaa" * 32
         payload = BlerpcCrypto.build_step1_payload(pubkey)
         assert len(payload) == 33
         assert payload[0] == KEY_EXCHANGE_STEP1
@@ -274,9 +274,9 @@ class TestStepPayloads:
         assert parsed == pubkey
 
     def test_step2_build_parse(self):
-        x25519_pub = b"\xAA" * 32
-        signature = b"\xBB" * 64
-        ed25519_pub = b"\xCC" * 32
+        x25519_pub = b"\xaa" * 32
+        signature = b"\xbb" * 64
+        ed25519_pub = b"\xcc" * 32
         payload = BlerpcCrypto.build_step2_payload(x25519_pub, signature, ed25519_pub)
         assert len(payload) == 129
         assert payload[0] == KEY_EXCHANGE_STEP2
@@ -286,7 +286,7 @@ class TestStepPayloads:
         assert p_ed25519 == ed25519_pub
 
     def test_step3_build_parse(self):
-        encrypted = b"\xDD" * 44
+        encrypted = b"\xdd" * 44
         payload = BlerpcCrypto.build_step3_payload(encrypted)
         assert len(payload) == 45
         assert payload[0] == KEY_EXCHANGE_STEP3
@@ -294,7 +294,7 @@ class TestStepPayloads:
         assert parsed == encrypted
 
     def test_step4_build_parse(self):
-        encrypted = b"\xEE" * 44
+        encrypted = b"\xee" * 44
         payload = BlerpcCrypto.build_step4_payload(encrypted)
         assert len(payload) == 45
         assert payload[0] == KEY_EXCHANGE_STEP4
@@ -315,7 +315,7 @@ class TestStepPayloads:
 
 
 class TestFullKeyExchangeFlow:
-    """Test the complete 4-step key exchange between simulated central and peripheral."""
+    """Test complete 4-step key exchange between central and peripheral."""
 
     def test_full_handshake(self):
         # Peripheral's long-term keys
@@ -464,7 +464,7 @@ class TestBlerpcCryptoSession:
     def test_wrong_direction_fails(self):
         key = b"\x01" * 16
         central = BlerpcCryptoSession(key, is_central=True)
-        peripheral = BlerpcCryptoSession(key, is_central=False)
+        _peripheral = BlerpcCryptoSession(key, is_central=False)
 
         enc = central.encrypt(b"test")
         # Central trying to decrypt its own message (wrong direction)

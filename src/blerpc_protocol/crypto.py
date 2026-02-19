@@ -279,7 +279,7 @@ class BlerpcCrypto:
 
 
 class BlerpcCryptoSession:
-    """Encrypt/decrypt session with automatic counter management and replay detection."""
+    """Encrypt/decrypt with counter management and replay detection."""
 
     def __init__(self, session_key: bytes, is_central: bool):
         self._session_key = session_key
@@ -299,9 +299,7 @@ class BlerpcCryptoSession:
         counter, plaintext = BlerpcCrypto.decrypt_command(
             self._session_key, self._rx_direction, data
         )
-        if counter <= self._rx_counter and not (
-            self._rx_counter == 0 and counter == 0
-        ):
+        if counter <= self._rx_counter and not (self._rx_counter == 0 and counter == 0):
             raise RuntimeError(f"Replay detected: counter={counter}")
         self._rx_counter = counter
         return plaintext
@@ -314,7 +312,7 @@ class CentralKeyExchange:
         kx = CentralKeyExchange()
         step1_payload = kx.start()                          # send to peripheral
         step3_payload = kx.process_step2(step2_payload)     # send to peripheral
-        session       = kx.finish(step4_payload)            # returns BlerpcCryptoSession
+        session       = kx.finish(step4_payload)           # BlerpcCryptoSession
     """
 
     def __init__(self) -> None:
@@ -422,9 +420,7 @@ class PeripheralKeyExchange:
             self._x25519_pubkey, signature, self._ed25519_pubkey
         )
 
-    def process_step3(
-        self, step3_payload: bytes
-    ) -> tuple[bytes, BlerpcCryptoSession]:
+    def process_step3(self, step3_payload: bytes) -> tuple[bytes, BlerpcCryptoSession]:
         """Parse step 3, verify confirmation, return (step4_payload, session).
 
         Raises:

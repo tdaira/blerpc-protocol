@@ -328,7 +328,7 @@ static void test_capability_flag_constant(void)
 static void test_control_key_exchange_container(void)
 {
     /* Build a KEY_EXCHANGE control container */
-    uint8_t payload[] = {0x01, /* step 1 */
+    uint8_t payload[] = {0x01,              /* step 1 */
                          0xAA, 0xBB, 0xCC}; /* dummy pubkey fragment */
     struct container_header hdr = {
         .transaction_id = 7,
