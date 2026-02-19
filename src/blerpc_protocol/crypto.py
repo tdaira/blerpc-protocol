@@ -441,9 +441,7 @@ class PeripheralKeyExchange:
 
         return step4, session
 
-    def handle_step(
-        self, payload: bytes
-    ) -> tuple[bytes, BlerpcCryptoSession | None]:
+    def handle_step(self, payload: bytes) -> tuple[bytes, BlerpcCryptoSession | None]:
         """Dispatch a key exchange payload by step byte.
 
         Returns (response_payload, session_or_none).

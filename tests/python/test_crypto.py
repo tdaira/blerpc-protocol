@@ -727,9 +727,7 @@ class TestCentralPerformKeyExchange:
         assert session is not None
 
         # Verify session works
-        periph_session = BlerpcCryptoSession(
-            periph_kx._session_key, is_central=False
-        )
+        periph_session = BlerpcCryptoSession(periph_kx._session_key, is_central=False)
         enc = session.encrypt(b"test")
         assert periph_session.decrypt(enc) == b"test"
 
