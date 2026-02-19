@@ -26,6 +26,7 @@ from blerpc_protocol.crypto import (
     BlerpcCryptoSession,
     CentralKeyExchange,
     PeripheralKeyExchange,
+    central_perform_key_exchange,
 )
 
 __all__ = [
@@ -53,4 +54,5 @@ __all__ = [
     "make_timeout_request",
     "make_timeout_response",
     "PeripheralKeyExchange",
+    "central_perform_key_exchange",
 ]

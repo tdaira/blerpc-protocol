@@ -1,5 +1,6 @@
 #include "blerpc_protocol/crypto.h"
 
+#include <stdbool.h>
 #include <string.h>
 
 #include <mbedtls/platform_util.h>
@@ -649,4 +650,103 @@ int blerpc_peripheral_kx_process_step3(struct blerpc_peripheral_key_exchange *kx
 
     blerpc_crypto_session_init(session_out, kx->session_key, 0);
     return 0;
+}
+
+/* ── High-level key exchange helpers ─────────────────────────────────── */
+
+int blerpc_central_perform_key_exchange(
+    blerpc_kx_send_fn send_fn, blerpc_kx_recv_fn recv_fn, void *user_ctx,
+    struct blerpc_crypto_session *session_out,
+    uint8_t periph_ed25519_pubkey_out[BLERPC_ED25519_PUBKEY_SIZE])
+{
+    struct blerpc_central_key_exchange kx;
+    int rc;
+
+    blerpc_central_kx_init(&kx);
+
+    /* Step 1: Generate ephemeral keypair and send */
+    uint8_t step1[BLERPC_STEP1_SIZE];
+    rc = blerpc_central_kx_start(&kx, step1);
+    if (rc != 0) {
+        return rc;
+    }
+    rc = send_fn(step1, BLERPC_STEP1_SIZE, user_ctx);
+    if (rc != 0) {
+        return rc;
+    }
+
+    /* Step 2: Receive peripheral's response */
+    uint8_t step2[BLERPC_STEP2_SIZE];
+    size_t step2_len;
+    rc = recv_fn(step2, sizeof(step2), &step2_len, user_ctx);
+    if (rc != 0) {
+        return rc;
+    }
+
+    /* Process step 2 and produce step 3 */
+    uint8_t step3[BLERPC_STEP3_SIZE];
+    rc = blerpc_central_kx_process_step2(&kx, step2, step2_len, step3,
+                                          periph_ed25519_pubkey_out);
+    if (rc != 0) {
+        return rc;
+    }
+
+    /* Send step 3 */
+    rc = send_fn(step3, BLERPC_STEP3_SIZE, user_ctx);
+    if (rc != 0) {
+        return rc;
+    }
+
+    /* Step 4: Receive peripheral's confirmation */
+    uint8_t step4[BLERPC_STEP4_SIZE];
+    size_t step4_len;
+    rc = recv_fn(step4, sizeof(step4), &step4_len, user_ctx);
+    if (rc != 0) {
+        return rc;
+    }
+
+    /* Finish: verify confirmation and produce session */
+    return blerpc_central_kx_finish(&kx, step4, step4_len, session_out);
+}
+
+int blerpc_peripheral_kx_handle_step(
+    struct blerpc_peripheral_key_exchange *kx,
+    const uint8_t *payload, size_t payload_len,
+    uint8_t *out, size_t out_size, size_t *out_len,
+    struct blerpc_crypto_session *session_out, bool *session_established)
+{
+    if (payload_len < 1) {
+        return -1;
+    }
+
+    *session_established = false;
+
+    uint8_t step = payload[0];
+
+    if (step == BLERPC_KEY_EXCHANGE_STEP1) {
+        if (out_size < BLERPC_STEP2_SIZE) {
+            return -1;
+        }
+        int rc = blerpc_peripheral_kx_process_step1(kx, payload, payload_len, out);
+        if (rc != 0) {
+            return rc;
+        }
+        *out_len = BLERPC_STEP2_SIZE;
+        return 0;
+
+    } else if (step == BLERPC_KEY_EXCHANGE_STEP3) {
+        if (out_size < BLERPC_STEP4_SIZE) {
+            return -1;
+        }
+        int rc = blerpc_peripheral_kx_process_step3(kx, payload, payload_len,
+                                                     out, session_out);
+        if (rc != 0) {
+            return rc;
+        }
+        *out_len = BLERPC_STEP4_SIZE;
+        *session_established = true;
+        return 0;
+    }
+
+    return -1;
 }

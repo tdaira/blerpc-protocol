@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import struct
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -438,3 +438,63 @@ class PeripheralKeyExchange:
         session = BlerpcCryptoSession(self._session_key, is_central=False)
 
         return step4, session
+
+    def handle_step(
+        self, payload: bytes
+    ) -> tuple[bytes, BlerpcCryptoSession | None]:
+        """Dispatch a key exchange payload by step byte.
+
+        Returns (response_payload, session_or_none).
+        Session is returned only after step 3 completes successfully.
+
+        Raises:
+            ValueError: If the step byte is invalid or processing fails.
+        """
+        if len(payload) < 1:
+            raise ValueError("Empty key exchange payload")
+
+        step = payload[0]
+        if step == KEY_EXCHANGE_STEP1:
+            return self.process_step1(payload), None
+        elif step == KEY_EXCHANGE_STEP3:
+            step4, session = self.process_step3(payload)
+            return step4, session
+        else:
+            raise ValueError(f"Invalid key exchange step: 0x{step:02x}")
+
+
+async def central_perform_key_exchange(
+    send: Callable[[bytes], Awaitable[None]],
+    receive: Callable[[], Awaitable[bytes]],
+    verify_key_cb: Callable[[bytes], bool] | None = None,
+) -> BlerpcCryptoSession:
+    """Perform the 4-step central key exchange using send/receive callbacks.
+
+    Args:
+        send: Async callback to send a key exchange payload.
+        receive: Async callback to receive a key exchange payload.
+        verify_key_cb: Optional callback to verify peripheral's Ed25519 public key.
+
+    Returns:
+        An established BlerpcCryptoSession.
+
+    Raises:
+        ValueError: If any step of the key exchange fails.
+    """
+    kx = CentralKeyExchange()
+
+    # Step 1: Send central's ephemeral public key
+    step1 = kx.start()
+    await send(step1)
+
+    # Step 2: Receive peripheral's response
+    step2 = await receive()
+
+    # Step 2 -> Step 3: Verify and produce confirmation
+    step3 = kx.process_step2(step2, verify_key_cb=verify_key_cb)
+    await send(step3)
+
+    # Step 4: Receive peripheral's confirmation
+    step4 = await receive()
+
+    return kx.finish(step4)

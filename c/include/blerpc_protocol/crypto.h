@@ -1,8 +1,9 @@
 #ifndef BLERPC_PROTOCOL_CRYPTO_H
 #define BLERPC_PROTOCOL_CRYPTO_H
 
-#include <stdint.h>
+#include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -282,6 +283,58 @@ int blerpc_peripheral_kx_process_step3(struct blerpc_peripheral_key_exchange *kx
                                         const uint8_t *step3, size_t step3_len,
                                         uint8_t out[BLERPC_STEP4_SIZE],
                                         struct blerpc_crypto_session *session_out);
+
+/**
+ * Callback function type for sending key exchange payloads.
+ * payload: data to send
+ * len: data length
+ * ctx: user context pointer
+ * Returns 0 on success, non-zero on error.
+ */
+typedef int (*blerpc_kx_send_fn)(const uint8_t *payload, size_t len, void *ctx);
+
+/**
+ * Callback function type for receiving key exchange payloads.
+ * buf: buffer to receive data into
+ * buf_size: buffer capacity
+ * out_len: output - actual bytes received
+ * ctx: user context pointer
+ * Returns 0 on success, non-zero on error.
+ */
+typedef int (*blerpc_kx_recv_fn)(uint8_t *buf, size_t buf_size, size_t *out_len, void *ctx);
+
+/**
+ * Perform the complete 4-step central key exchange using callbacks.
+ * send_fn: callback to send a key exchange payload
+ * recv_fn: callback to receive a key exchange payload
+ * user_ctx: opaque pointer passed to callbacks
+ * session_out: output crypto session (initialized as central)
+ * periph_ed25519_pubkey_out: optional output of peripheral's Ed25519 public key (32 bytes)
+ * Returns 0 on success, non-zero on error.
+ */
+int blerpc_central_perform_key_exchange(
+    blerpc_kx_send_fn send_fn, blerpc_kx_recv_fn recv_fn, void *user_ctx,
+    struct blerpc_crypto_session *session_out,
+    uint8_t periph_ed25519_pubkey_out[BLERPC_ED25519_PUBKEY_SIZE]);
+
+/**
+ * Handle a single key exchange step on the peripheral side.
+ * Dispatches based on the step byte in the payload.
+ * kx: peripheral key exchange state machine
+ * payload: incoming step payload
+ * payload_len: payload length
+ * out: output response payload buffer
+ * out_size: output buffer capacity
+ * out_len: output - actual response bytes written
+ * session_out: output crypto session (only valid when session_established is true)
+ * session_established: output - set to true when session is established (after step 3)
+ * Returns 0 on success, non-zero on error.
+ */
+int blerpc_peripheral_kx_handle_step(
+    struct blerpc_peripheral_key_exchange *kx,
+    const uint8_t *payload, size_t payload_len,
+    uint8_t *out, size_t out_size, size_t *out_len,
+    struct blerpc_crypto_session *session_out, bool *session_established);
 
 #ifdef __cplusplus
 }

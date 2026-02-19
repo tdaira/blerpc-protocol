@@ -26,6 +26,7 @@ from blerpc_protocol.crypto import (
     BlerpcCryptoSession,
     CentralKeyExchange,
     PeripheralKeyExchange,
+    central_perform_key_exchange,
 )
 
 
@@ -650,3 +651,117 @@ class TestKeyExchangeIntegration:
             resp = f"p2c_{i}".encode()
             enc_resp = periph_session.encrypt(resp)
             assert central_session.decrypt(enc_resp) == resp
+
+
+class TestPeripheralHandleStep:
+    def _make_peripheral_kx(self):
+        x_priv, _ = BlerpcCrypto.generate_x25519_keypair()
+        ed_priv, _ = BlerpcCrypto.generate_ed25519_keypair()
+        return PeripheralKeyExchange(x_priv, ed_priv)
+
+    def test_handle_step_1(self):
+        kx = self._make_peripheral_kx()
+        central_x_priv, central_x_pub = BlerpcCrypto.generate_x25519_keypair()
+        step1 = BlerpcCrypto.build_step1_payload(central_x_pub)
+
+        response, session = kx.handle_step(step1)
+        assert response[0] == KEY_EXCHANGE_STEP2
+        assert len(response) == 129
+        assert session is None
+
+    def test_handle_step_3(self):
+        kx = self._make_peripheral_kx()
+        central_kx = CentralKeyExchange()
+
+        step1 = central_kx.start()
+        step2, session1 = kx.handle_step(step1)
+        assert session1 is None
+
+        step3 = central_kx.process_step2(step2)
+        step4, session2 = kx.handle_step(step3)
+        assert step4[0] == KEY_EXCHANGE_STEP4
+        assert len(step4) == 45
+        assert session2 is not None
+
+    def test_handle_step_invalid(self):
+        kx = self._make_peripheral_kx()
+        with pytest.raises(ValueError, match="Invalid key exchange step"):
+            kx.handle_step(bytes([0x02]) + b"\x00" * 128)
+
+    def test_handle_step_empty_payload(self):
+        kx = self._make_peripheral_kx()
+        with pytest.raises(ValueError, match="Empty key exchange payload"):
+            kx.handle_step(b"")
+
+
+class TestCentralPerformKeyExchange:
+    @pytest.mark.asyncio
+    async def test_full_handshake(self):
+        periph_x_priv, _ = BlerpcCrypto.generate_x25519_keypair()
+        periph_ed_priv, _ = BlerpcCrypto.generate_ed25519_keypair()
+        periph_kx = PeripheralKeyExchange(periph_x_priv, periph_ed_priv)
+
+        payloads = []
+
+        async def mock_send(payload: bytes) -> None:
+            response, _ = periph_kx.handle_step(payload)
+            payloads.append(response)
+
+        async def mock_receive() -> bytes:
+            return payloads.pop(0)
+
+        session = await central_perform_key_exchange(mock_send, mock_receive)
+        assert session is not None
+
+        # Verify session works
+        periph_session = BlerpcCryptoSession(
+            periph_kx._session_key, is_central=False
+        )
+        enc = session.encrypt(b"test")
+        assert periph_session.decrypt(enc) == b"test"
+
+    @pytest.mark.asyncio
+    async def test_verify_cb_reject(self):
+        periph_x_priv, _ = BlerpcCrypto.generate_x25519_keypair()
+        periph_ed_priv, _ = BlerpcCrypto.generate_ed25519_keypair()
+        periph_kx = PeripheralKeyExchange(periph_x_priv, periph_ed_priv)
+
+        payloads = []
+
+        async def mock_send(payload: bytes) -> None:
+            response, _ = periph_kx.handle_step(payload)
+            payloads.append(response)
+
+        async def mock_receive() -> bytes:
+            return payloads.pop(0)
+
+        with pytest.raises(ValueError, match="rejected"):
+            await central_perform_key_exchange(
+                mock_send, mock_receive, verify_key_cb=lambda _: False
+            )
+
+    @pytest.mark.asyncio
+    async def test_verify_cb_accept(self):
+        periph_x_priv, _ = BlerpcCrypto.generate_x25519_keypair()
+        periph_ed_priv, periph_ed_pub = BlerpcCrypto.generate_ed25519_keypair()
+        periph_kx = PeripheralKeyExchange(periph_x_priv, periph_ed_priv)
+
+        payloads = []
+        seen_keys = []
+
+        async def mock_send(payload: bytes) -> None:
+            response, _ = periph_kx.handle_step(payload)
+            payloads.append(response)
+
+        async def mock_receive() -> bytes:
+            return payloads.pop(0)
+
+        def verify_cb(key: bytes) -> bool:
+            seen_keys.append(key)
+            return True
+
+        session = await central_perform_key_exchange(
+            mock_send, mock_receive, verify_key_cb=verify_cb
+        )
+        assert session is not None
+        assert seen_keys[0] == periph_ed_pub
