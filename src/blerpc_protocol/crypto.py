@@ -285,6 +285,7 @@ class BlerpcCryptoSession:
         self._session_key = session_key
         self._tx_counter = 0
         self._rx_counter = 0
+        self._rx_first_done = False
         self._tx_direction = DIRECTION_C2P if is_central else DIRECTION_P2C
         self._rx_direction = DIRECTION_P2C if is_central else DIRECTION_C2P
 
@@ -299,9 +300,10 @@ class BlerpcCryptoSession:
         counter, plaintext = BlerpcCrypto.decrypt_command(
             self._session_key, self._rx_direction, data
         )
-        if counter <= self._rx_counter and not (self._rx_counter == 0 and counter == 0):
+        if self._rx_first_done and counter <= self._rx_counter:
             raise RuntimeError(f"Replay detected: counter={counter}")
         self._rx_counter = counter
+        self._rx_first_done = True
         return plaintext
 
 

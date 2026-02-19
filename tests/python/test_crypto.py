@@ -462,6 +462,19 @@ class TestBlerpcCryptoSession:
         with pytest.raises(RuntimeError, match="Replay detected"):
             peripheral.decrypt(enc0)
 
+    def test_counter_zero_replay_attack(self):
+        """Counter-0 messages must not be accepted more than once."""
+        key = b"\x01" * 16
+        central = BlerpcCryptoSession(key, is_central=True)
+        peripheral = BlerpcCryptoSession(key, is_central=False)
+
+        enc0 = central.encrypt(b"msg0")
+        peripheral.decrypt(enc0)
+
+        # Replaying counter-0 message should fail
+        with pytest.raises(RuntimeError, match="Replay detected"):
+            peripheral.decrypt(enc0)
+
     def test_wrong_direction_fails(self):
         key = b"\x01" * 16
         central = BlerpcCryptoSession(key, is_central=True)

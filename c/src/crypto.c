@@ -370,6 +370,7 @@ void blerpc_crypto_session_init(struct blerpc_crypto_session *s,
     s->rx_counter = 0;
     s->tx_direction = is_central ? BLERPC_DIRECTION_C2P : BLERPC_DIRECTION_P2C;
     s->rx_direction = is_central ? BLERPC_DIRECTION_P2C : BLERPC_DIRECTION_C2P;
+    s->rx_first_done = 0;
     s->active = 1;
 }
 
@@ -408,10 +409,11 @@ int blerpc_crypto_session_decrypt(struct blerpc_crypto_session *s,
     }
 
     /* Replay protection: counter must be strictly greater than last seen */
-    if (counter <= s->rx_counter && !(s->rx_counter == 0 && counter == 0)) {
+    if (s->rx_first_done && counter <= s->rx_counter) {
         return -1;
     }
     s->rx_counter = counter;
+    s->rx_first_done = 1;
     return 0;
 }
 

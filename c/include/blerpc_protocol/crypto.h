@@ -50,6 +50,7 @@ struct blerpc_crypto_session {
     uint32_t rx_counter;
     uint8_t tx_direction; /* BLERPC_DIRECTION_C2P or P2C */
     uint8_t rx_direction;
+    uint8_t rx_first_done;
     uint8_t active; /* 1 if session established */
 };
 
