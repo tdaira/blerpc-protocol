@@ -46,7 +46,8 @@ jobs:
             c/include/blerpc_protocol/command.h \
             c/src/container.c \
             c/src/command.c \
-            tests/c/test_standalone.c
+            tests/c/test_standalone.c \
+            tests/c/test_crypto.c
 
   c-test:
     name: C Tests
@@ -61,3 +62,23 @@ jobs:
             c/src/command.c \
             -Ic/include -Wall -Wextra -Werror -std=c11
           /tmp/test_standalone
+      - name: Install mbedTLS
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libmbedtls-dev
+      - name: Build and run crypto tests
+        run: |
+          # Detect Ed25519 support in installed mbedTLS
+          EDDSA_FLAG="-DHAS_EDDSA=0"
+          if echo '#include <psa/crypto.h>' | gcc -x c -E - 2>/dev/null | grep -q PSA_ECC_FAMILY_TWISTED_EDWARDS; then
+            if grep -q 'PSA_WANT_ECC_TWISTED_EDWARDS_255' /usr/include/psa/crypto_config.h 2>/dev/null; then
+              EDDSA_FLAG="-DHAS_EDDSA=1"
+            fi
+          fi
+          gcc -o /tmp/test_crypto \
+            tests/c/test_crypto.c \
+            c/src/crypto.c \
+            -Ic/include -Wall -Wextra -Werror -std=c11 \
+            $EDDSA_FLAG \
+            -lmbedtls -lmbedcrypto -lmbedx509
+          /tmp/test_crypto

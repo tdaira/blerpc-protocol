@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "blerpc-protocol"
-version = "0.2.0"
+version = "0.3.0"
 description = "Container and command protocol layers for BLE RPC"
 license = "LGPL-3.0-or-later"
 requires-python = ">=3.11"
