@@ -25,6 +25,7 @@ extern "C" {
 
 /* Error codes for CONTROL_CMD_ERROR */
 #define BLERPC_ERROR_RESPONSE_TOO_LARGE 0x01
+#define BLERPC_ERROR_BUSY 0x02
 
 /* Capabilities flags (bit field) */
 #define CAPABILITY_FLAG_ENCRYPTION_SUPPORTED 0x0001

@@ -437,7 +437,7 @@ int blerpc_crypto_session_decrypt(struct blerpc_crypto_session *s,
 
 int blerpc_central_kx_init(struct blerpc_central_key_exchange *kx)
 {
-    memset(kx, 0, sizeof(*kx));
+    mbedtls_platform_zeroize(kx, sizeof(*kx));
     return 0;
 }
 
@@ -543,7 +543,7 @@ int blerpc_central_kx_finish(struct blerpc_central_key_exchange *kx,
 int blerpc_peripheral_kx_init(struct blerpc_peripheral_key_exchange *kx,
                                const uint8_t ed25519_privkey[32])
 {
-    memset(kx, 0, sizeof(*kx));
+    mbedtls_platform_zeroize(kx, sizeof(*kx));
 
     /* Derive Ed25519 public key from seed, store full key (seed + pubkey) */
     psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
@@ -659,9 +659,9 @@ int blerpc_peripheral_kx_process_step3(struct blerpc_peripheral_key_exchange *kx
 void blerpc_peripheral_kx_reset(struct blerpc_peripheral_key_exchange *kx)
 {
     kx->state = 0;
-    memset(kx->x25519_privkey, 0, sizeof(kx->x25519_privkey));
-    memset(kx->x25519_pubkey, 0, sizeof(kx->x25519_pubkey));
-    memset(kx->session_key, 0, sizeof(kx->session_key));
+    mbedtls_platform_zeroize(kx->x25519_privkey, sizeof(kx->x25519_privkey));
+    mbedtls_platform_zeroize(kx->x25519_pubkey, sizeof(kx->x25519_pubkey));
+    mbedtls_platform_zeroize(kx->session_key, sizeof(kx->session_key));
 }
 
 /* ── High-level key exchange helpers ─────────────────────────────────── */

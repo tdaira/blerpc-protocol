@@ -36,6 +36,7 @@ class ControlCmd(IntEnum):
 
 # Error codes for ControlCmd.ERROR
 BLERPC_ERROR_RESPONSE_TOO_LARGE = 0x01
+BLERPC_ERROR_BUSY = 0x02
 
 # Capabilities flags (bit field)
 CAPABILITY_FLAG_ENCRYPTION_SUPPORTED = 0x0001
