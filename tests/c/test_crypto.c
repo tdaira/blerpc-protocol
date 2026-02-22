@@ -146,17 +146,16 @@ static void test_aes_gcm_encrypt_decrypt(void)
 
     uint8_t encrypted[256];
     size_t enc_len;
-    assert(blerpc_crypto_encrypt_command(encrypted, sizeof(encrypted), &enc_len,
-                                         session_key, 42, BLERPC_DIRECTION_C2P,
-                                         plaintext, pt_len) == 0);
+    assert(blerpc_crypto_encrypt_command(encrypted, sizeof(encrypted), &enc_len, session_key, 42,
+                                         BLERPC_DIRECTION_C2P, plaintext, pt_len) == 0);
     assert(enc_len == pt_len + BLERPC_ENCRYPTED_OVERHEAD);
 
     uint8_t decrypted[256];
     size_t dec_len;
     uint32_t counter_out;
     assert(blerpc_crypto_decrypt_command(decrypted, sizeof(decrypted), &dec_len, &counter_out,
-                                         session_key, BLERPC_DIRECTION_C2P,
-                                         encrypted, enc_len) == 0);
+                                         session_key, BLERPC_DIRECTION_C2P, encrypted,
+                                         enc_len) == 0);
     assert(dec_len == pt_len);
     assert(counter_out == 42);
     assert(memcmp(decrypted, plaintext, pt_len) == 0);
@@ -202,7 +201,8 @@ static void test_session_encrypt_decrypt(void)
     /* Peripheral encrypts, central decrypts */
     const uint8_t msg2[] = "response data";
     size_t msg2_len = sizeof(msg2) - 1;
-    assert(blerpc_crypto_session_encrypt(&peripheral, ct, sizeof(ct), &ct_len, msg2, msg2_len) == 0);
+    assert(blerpc_crypto_session_encrypt(&peripheral, ct, sizeof(ct), &ct_len, msg2, msg2_len) ==
+           0);
     assert(blerpc_crypto_session_decrypt(&central, pt, sizeof(pt), &pt_len, ct, ct_len) == 0);
     assert(pt_len == msg2_len);
     assert(memcmp(pt, msg2, msg2_len) == 0);
@@ -276,8 +276,10 @@ static void test_central_key_exchange_full_flow(void)
     uint8_t ct[256], pt[256];
     size_t ct_len, pt_len;
 
-    assert(blerpc_crypto_session_encrypt(&central_session, ct, sizeof(ct), &ct_len, msg, msg_len) == 0);
-    assert(blerpc_crypto_session_decrypt(&periph_session, pt, sizeof(pt), &pt_len, ct, ct_len) == 0);
+    assert(blerpc_crypto_session_encrypt(&central_session, ct, sizeof(ct), &ct_len, msg, msg_len) ==
+           0);
+    assert(blerpc_crypto_session_decrypt(&periph_session, pt, sizeof(pt), &pt_len, ct, ct_len) ==
+           0);
     assert(pt_len == msg_len);
     assert(memcmp(pt, msg, msg_len) == 0);
 }
