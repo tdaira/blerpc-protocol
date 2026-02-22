@@ -329,7 +329,7 @@ static void test_capability_flag_constant(void)
 
 static void test_assembler_sequence_overflow(void)
 {
-    /* M-4: Feed enough subsequent containers to overflow the uint8_t seq counter */
+    /* Feed enough subsequent containers to overflow the uint8_t seq counter */
     struct container_assembler a;
     container_assembler_init(&a);
 
@@ -374,7 +374,7 @@ static void test_assembler_sequence_overflow(void)
 
 static void test_split_mtu_too_small(void)
 {
-    /* M-5: MTU so small that first container header doesn't fit */
+    /* MTU so small that first container header doesn't fit */
     uint8_t payload[] = "test";
     send_buf_offset = 0;
     send_count = 0;

@@ -771,7 +771,7 @@ class TestCentralPerformKeyExchange:
 
 
 class TestKeyExchangeStateValidation:
-    """H-3: Key exchange state machine rejects out-of-order steps."""
+    """Key exchange state machine rejects out-of-order steps."""
 
     def test_central_process_step2_before_start_raises(self):
         kx = CentralKeyExchange()
@@ -827,7 +827,7 @@ class TestKeyExchangeStateValidation:
 
 
 class TestCryptoSessionCounterOverflow:
-    """M-1: TX counter overflow raises before nonce reuse."""
+    """TX counter overflow raises before nonce reuse."""
 
     def test_encrypt_at_max_counter_raises(self):
         key = b"\x01" * 16
@@ -845,7 +845,7 @@ class TestCryptoSessionCounterOverflow:
 
 
 class TestCryptoSessionThreadSafety:
-    """H-4: Concurrent encrypt/decrypt must not corrupt counters."""
+    """Concurrent encrypt/decrypt must not corrupt counters."""
 
     def test_concurrent_encrypt_no_duplicate_counters(self):
         import struct as _struct
