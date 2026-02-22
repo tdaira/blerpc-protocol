@@ -1,6 +1,7 @@
 """Tests for blerpc E2E encryption module."""
 
 import struct
+import threading
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -557,10 +558,9 @@ class TestCentralKeyExchange:
 
 class TestPeripheralKeyExchange:
     def test_process_step1_produces_step2(self):
-        x_priv, _ = BlerpcCrypto.generate_x25519_keypair()
         ed_priv, _ = BlerpcCrypto.generate_ed25519_keypair()
 
-        kx = PeripheralKeyExchange(x_priv, ed_priv)
+        kx = PeripheralKeyExchange(ed_priv)
         central_x_priv, central_x_pub = BlerpcCrypto.generate_x25519_keypair()
         step1 = BlerpcCrypto.build_step1_payload(central_x_pub)
 
@@ -569,10 +569,9 @@ class TestPeripheralKeyExchange:
         assert step2[0] == KEY_EXCHANGE_STEP2
 
     def test_process_step3_bad_confirmation_raises(self):
-        x_priv, _ = BlerpcCrypto.generate_x25519_keypair()
         ed_priv, _ = BlerpcCrypto.generate_ed25519_keypair()
 
-        kx = PeripheralKeyExchange(x_priv, ed_priv)
+        kx = PeripheralKeyExchange(ed_priv)
         central_x_priv, central_x_pub = BlerpcCrypto.generate_x25519_keypair()
         step1 = BlerpcCrypto.build_step1_payload(central_x_pub)
         kx.process_step1(step1)
@@ -592,11 +591,10 @@ class TestKeyExchangeIntegration:
 
     def test_full_handshake_and_session(self):
         # Peripheral long-term keys
-        periph_x_priv, _ = BlerpcCrypto.generate_x25519_keypair()
         periph_ed_priv, _ = BlerpcCrypto.generate_ed25519_keypair()
 
         central_kx = CentralKeyExchange()
-        periph_kx = PeripheralKeyExchange(periph_x_priv, periph_ed_priv)
+        periph_kx = PeripheralKeyExchange(periph_ed_priv)
 
         # Step 1 -> Step 2
         step1 = central_kx.start()
@@ -619,11 +617,10 @@ class TestKeyExchangeIntegration:
         assert central_session.decrypt(enc_resp) == b"echo response"
 
     def test_handshake_with_verify_cb(self):
-        periph_x_priv, _ = BlerpcCrypto.generate_x25519_keypair()
         periph_ed_priv, periph_ed_pub = BlerpcCrypto.generate_ed25519_keypair()
 
         central_kx = CentralKeyExchange()
-        periph_kx = PeripheralKeyExchange(periph_x_priv, periph_ed_priv)
+        periph_kx = PeripheralKeyExchange(periph_ed_priv)
 
         step1 = central_kx.start()
         step2 = periph_kx.process_step1(step1)
@@ -643,11 +640,10 @@ class TestKeyExchangeIntegration:
         assert periph_session.decrypt(enc) == b"test"
 
     def test_multiple_messages_after_handshake(self):
-        periph_x_priv, _ = BlerpcCrypto.generate_x25519_keypair()
         periph_ed_priv, _ = BlerpcCrypto.generate_ed25519_keypair()
 
         central_kx = CentralKeyExchange()
-        periph_kx = PeripheralKeyExchange(periph_x_priv, periph_ed_priv)
+        periph_kx = PeripheralKeyExchange(periph_ed_priv)
 
         step1 = central_kx.start()
         step2 = periph_kx.process_step1(step1)
@@ -668,9 +664,8 @@ class TestKeyExchangeIntegration:
 
 class TestPeripheralHandleStep:
     def _make_peripheral_kx(self):
-        x_priv, _ = BlerpcCrypto.generate_x25519_keypair()
         ed_priv, _ = BlerpcCrypto.generate_ed25519_keypair()
-        return PeripheralKeyExchange(x_priv, ed_priv)
+        return PeripheralKeyExchange(ed_priv)
 
     def test_handle_step_1(self):
         kx = self._make_peripheral_kx()
@@ -710,9 +705,8 @@ class TestPeripheralHandleStep:
 class TestCentralPerformKeyExchange:
     @pytest.mark.asyncio
     async def test_full_handshake(self):
-        periph_x_priv, _ = BlerpcCrypto.generate_x25519_keypair()
         periph_ed_priv, _ = BlerpcCrypto.generate_ed25519_keypair()
-        periph_kx = PeripheralKeyExchange(periph_x_priv, periph_ed_priv)
+        periph_kx = PeripheralKeyExchange(periph_ed_priv)
 
         payloads = []
 
@@ -733,9 +727,8 @@ class TestCentralPerformKeyExchange:
 
     @pytest.mark.asyncio
     async def test_verify_cb_reject(self):
-        periph_x_priv, _ = BlerpcCrypto.generate_x25519_keypair()
         periph_ed_priv, _ = BlerpcCrypto.generate_ed25519_keypair()
-        periph_kx = PeripheralKeyExchange(periph_x_priv, periph_ed_priv)
+        periph_kx = PeripheralKeyExchange(periph_ed_priv)
 
         payloads = []
 
@@ -753,9 +746,8 @@ class TestCentralPerformKeyExchange:
 
     @pytest.mark.asyncio
     async def test_verify_cb_accept(self):
-        periph_x_priv, _ = BlerpcCrypto.generate_x25519_keypair()
         periph_ed_priv, periph_ed_pub = BlerpcCrypto.generate_ed25519_keypair()
-        periph_kx = PeripheralKeyExchange(periph_x_priv, periph_ed_priv)
+        periph_kx = PeripheralKeyExchange(periph_ed_priv)
 
         payloads = []
         seen_keys = []
@@ -776,3 +768,109 @@ class TestCentralPerformKeyExchange:
         )
         assert session is not None
         assert seen_keys[0] == periph_ed_pub
+
+
+class TestKeyExchangeStateValidation:
+    """H-3: Key exchange state machine rejects out-of-order steps."""
+
+    def test_central_process_step2_before_start_raises(self):
+        kx = CentralKeyExchange()
+        with pytest.raises(RuntimeError, match="Invalid state"):
+            kx.process_step2(b"\x02" + b"\x00" * 128)
+
+    def test_central_finish_before_process_step2_raises(self):
+        kx = CentralKeyExchange()
+        kx.start()
+        with pytest.raises(RuntimeError, match="Invalid state"):
+            kx.finish(b"\x04" + b"\x00" * 44)
+
+    def test_central_double_start_raises(self):
+        kx = CentralKeyExchange()
+        kx.start()
+        with pytest.raises(RuntimeError, match="Invalid state"):
+            kx.start()
+
+    def test_peripheral_process_step3_before_step1_raises(self):
+        ed_priv, _ = BlerpcCrypto.generate_ed25519_keypair()
+        kx = PeripheralKeyExchange(ed_priv)
+        with pytest.raises(RuntimeError, match="Invalid state"):
+            kx.process_step3(b"\x03" + b"\x00" * 44)
+
+    def test_peripheral_handle_step3_before_step1_raises(self):
+        ed_priv, _ = BlerpcCrypto.generate_ed25519_keypair()
+        kx = PeripheralKeyExchange(ed_priv)
+        with pytest.raises(RuntimeError, match="Invalid state"):
+            kx.handle_step(b"\x03" + b"\x00" * 44)
+
+    def test_peripheral_double_step1_raises(self):
+        ed_priv, _ = BlerpcCrypto.generate_ed25519_keypair()
+        kx = PeripheralKeyExchange(ed_priv)
+        central_kx = CentralKeyExchange()
+        step1 = central_kx.start()
+        kx.process_step1(step1)
+        with pytest.raises(RuntimeError, match="Invalid state"):
+            kx.process_step1(step1)
+
+    def test_peripheral_reset_allows_new_handshake(self):
+        ed_priv, _ = BlerpcCrypto.generate_ed25519_keypair()
+        kx = PeripheralKeyExchange(ed_priv)
+        # Do a partial handshake
+        central_kx = CentralKeyExchange()
+        step1 = central_kx.start()
+        kx.process_step1(step1)
+        # Reset and start new handshake
+        kx.reset()
+        central_kx2 = CentralKeyExchange()
+        step1_2 = central_kx2.start()
+        step2 = kx.process_step1(step1_2)
+        assert len(step2) == 129
+
+
+class TestCryptoSessionCounterOverflow:
+    """M-1: TX counter overflow raises before nonce reuse."""
+
+    def test_encrypt_at_max_counter_raises(self):
+        key = b"\x01" * 16
+        session = BlerpcCryptoSession(key, is_central=True)
+        session._tx_counter = 0xFFFFFFFF
+        with pytest.raises(RuntimeError, match="TX counter overflow"):
+            session.encrypt(b"test")
+
+    def test_encrypt_below_max_counter_works(self):
+        key = b"\x01" * 16
+        session = BlerpcCryptoSession(key, is_central=True)
+        session._tx_counter = 0xFFFFFFFE
+        encrypted = session.encrypt(b"test")
+        assert len(encrypted) > 0
+
+
+class TestCryptoSessionThreadSafety:
+    """H-4: Concurrent encrypt/decrypt must not corrupt counters."""
+
+    def test_concurrent_encrypt_no_duplicate_counters(self):
+        import struct as _struct
+
+        key = b"\x01" * 16
+        session = BlerpcCryptoSession(key, is_central=True)
+        results = []
+        errors = []
+
+        def encrypt_many(count):
+            for _ in range(count):
+                try:
+                    enc = session.encrypt(b"x")
+                    counter = _struct.unpack_from("<I", enc, 0)[0]
+                    results.append(counter)
+                except Exception as e:
+                    errors.append(e)
+
+        threads = [threading.Thread(target=encrypt_many, args=(50,)) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors
+        assert len(results) == 200
+        # All counters must be unique (no race condition duplicates)
+        assert len(set(results)) == 200

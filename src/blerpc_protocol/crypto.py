@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import struct
+import threading
 from collections.abc import Awaitable, Callable
 
 from cryptography.hazmat.primitives import hashes, serialization
@@ -288,23 +289,28 @@ class BlerpcCryptoSession:
         self._rx_first_done = False
         self._tx_direction = DIRECTION_C2P if is_central else DIRECTION_P2C
         self._rx_direction = DIRECTION_P2C if is_central else DIRECTION_C2P
+        self._lock = threading.Lock()
 
     def encrypt(self, plaintext: bytes) -> bytes:
-        encrypted = BlerpcCrypto.encrypt_command(
-            self._session_key, self._tx_counter, self._tx_direction, plaintext
-        )
-        self._tx_counter += 1
-        return encrypted
+        with self._lock:
+            if self._tx_counter >= 0xFFFFFFFF:
+                raise RuntimeError("TX counter overflow: session must be rekeyed")
+            encrypted = BlerpcCrypto.encrypt_command(
+                self._session_key, self._tx_counter, self._tx_direction, plaintext
+            )
+            self._tx_counter += 1
+            return encrypted
 
     def decrypt(self, data: bytes) -> bytes:
-        counter, plaintext = BlerpcCrypto.decrypt_command(
-            self._session_key, self._rx_direction, data
-        )
-        if self._rx_first_done and counter <= self._rx_counter:
-            raise RuntimeError(f"Replay detected: counter={counter}")
-        self._rx_counter = counter
-        self._rx_first_done = True
-        return plaintext
+        with self._lock:
+            counter, plaintext = BlerpcCrypto.decrypt_command(
+                self._session_key, self._rx_direction, data
+            )
+            if self._rx_first_done and counter <= self._rx_counter:
+                raise RuntimeError(f"Replay detected: counter={counter}")
+            self._rx_counter = counter
+            self._rx_first_done = True
+            return plaintext
 
 
 class CentralKeyExchange:
@@ -321,12 +327,16 @@ class CentralKeyExchange:
         self._x25519_privkey: X25519PrivateKey | None = None
         self._x25519_pubkey: bytes | None = None
         self._session_key: bytes | None = None
+        self._state = 0
 
     def start(self) -> bytes:
         """Generate ephemeral X25519 keypair and return step 1 payload."""
+        if self._state != 0:
+            raise RuntimeError("Invalid state for start()")
         self._x25519_privkey, self._x25519_pubkey = (
             BlerpcCrypto.generate_x25519_keypair()
         )
+        self._state = 1
         return BlerpcCrypto.build_step1_payload(self._x25519_pubkey)
 
     def process_step2(
@@ -345,6 +355,8 @@ class CentralKeyExchange:
         Raises:
             ValueError: If signature verification fails or verify_key_cb rejects.
         """
+        if self._state != 1:
+            raise RuntimeError("Invalid state for process_step2()")
         periph_x25519_pub, signature, periph_ed25519_pub = (
             BlerpcCrypto.parse_step2_payload(step2_payload)
         )
@@ -366,6 +378,7 @@ class CentralKeyExchange:
         encrypted_confirm = BlerpcCrypto.encrypt_confirmation(
             self._session_key, CONFIRM_CENTRAL
         )
+        self._state = 2
         return BlerpcCrypto.build_step3_payload(encrypted_confirm)
 
     def finish(self, step4_payload: bytes) -> BlerpcCryptoSession:
@@ -374,6 +387,8 @@ class CentralKeyExchange:
         Raises:
             ValueError: If confirmation verification fails.
         """
+        if self._state != 2:
+            raise RuntimeError("Invalid state for finish()")
         encrypted_periph = BlerpcCrypto.parse_step4_payload(step4_payload)
         plaintext = BlerpcCrypto.decrypt_confirmation(
             self._session_key, encrypted_periph
@@ -388,38 +403,42 @@ class PeripheralKeyExchange:
     """Peripheral-side key exchange state machine.
 
     Usage:
-        kx = PeripheralKeyExchange(x25519_privkey, ed25519_privkey)
+        kx = PeripheralKeyExchange(ed25519_privkey)
         step2_payload          = kx.process_step1(step1_payload)  # send to central
         step4_payload, session = kx.process_step3(step3_payload)  # send + session
     """
 
     def __init__(
         self,
-        x25519_privkey: X25519PrivateKey,
         ed25519_privkey: Ed25519PrivateKey,
     ) -> None:
-        self._x25519_privkey = x25519_privkey
-        self._x25519_pubkey = BlerpcCrypto.x25519_public_bytes(x25519_privkey)
         self._ed25519_privkey = ed25519_privkey
         self._ed25519_pubkey = BlerpcCrypto.ed25519_public_bytes(ed25519_privkey)
         self._session_key: bytes | None = None
+        self._state = 0
 
     def process_step1(self, step1_payload: bytes) -> bytes:
-        """Parse step 1, sign, derive session key, return step 2 payload."""
+        """Parse step 1, generate ephemeral X25519 keypair, sign, derive session key, return step 2 payload."""
+        if self._state != 0:
+            raise RuntimeError("Invalid state for process_step1()")
         central_x25519_pubkey = BlerpcCrypto.parse_step1_payload(step1_payload)
 
-        sign_msg = central_x25519_pubkey + self._x25519_pubkey
+        # Generate ephemeral X25519 keypair for forward secrecy
+        x25519_privkey, x25519_pubkey = BlerpcCrypto.generate_x25519_keypair()
+
+        sign_msg = central_x25519_pubkey + x25519_pubkey
         signature = BlerpcCrypto.ed25519_sign(self._ed25519_privkey, sign_msg)
 
         shared_secret = BlerpcCrypto.x25519_shared_secret(
-            self._x25519_privkey, central_x25519_pubkey
+            x25519_privkey, central_x25519_pubkey
         )
         self._session_key = BlerpcCrypto.derive_session_key(
-            shared_secret, central_x25519_pubkey, self._x25519_pubkey
+            shared_secret, central_x25519_pubkey, x25519_pubkey
         )
 
+        self._state = 1
         return BlerpcCrypto.build_step2_payload(
-            self._x25519_pubkey, signature, self._ed25519_pubkey
+            x25519_pubkey, signature, self._ed25519_pubkey
         )
 
     def process_step3(self, step3_payload: bytes) -> tuple[bytes, BlerpcCryptoSession]:
@@ -428,6 +447,8 @@ class PeripheralKeyExchange:
         Raises:
             ValueError: If central confirmation verification fails.
         """
+        if self._state != 1:
+            raise RuntimeError("Invalid state for process_step3()")
         encrypted = BlerpcCrypto.parse_step3_payload(step3_payload)
         plaintext = BlerpcCrypto.decrypt_confirmation(self._session_key, encrypted)
         if plaintext != CONFIRM_CENTRAL:
@@ -455,12 +476,21 @@ class PeripheralKeyExchange:
 
         step = payload[0]
         if step == KEY_EXCHANGE_STEP1:
+            if self._state != 0:
+                raise RuntimeError("Invalid state for step 1")
             return self.process_step1(payload), None
         elif step == KEY_EXCHANGE_STEP3:
+            if self._state != 1:
+                raise RuntimeError("Invalid state for step 3")
             step4, session = self.process_step3(payload)
             return step4, session
         else:
             raise ValueError(f"Invalid key exchange step: 0x{step:02x}")
+
+    def reset(self) -> None:
+        """Reset key exchange state for new connection."""
+        self._state = 0
+        self._session_key = None
 
 
 async def central_perform_key_exchange(

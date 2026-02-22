@@ -146,15 +146,17 @@ static void test_aes_gcm_encrypt_decrypt(void)
 
     uint8_t encrypted[256];
     size_t enc_len;
-    assert(blerpc_crypto_encrypt_command(encrypted, &enc_len, session_key, 42, BLERPC_DIRECTION_C2P,
+    assert(blerpc_crypto_encrypt_command(encrypted, sizeof(encrypted), &enc_len,
+                                         session_key, 42, BLERPC_DIRECTION_C2P,
                                          plaintext, pt_len) == 0);
     assert(enc_len == pt_len + BLERPC_ENCRYPTED_OVERHEAD);
 
     uint8_t decrypted[256];
     size_t dec_len;
     uint32_t counter_out;
-    assert(blerpc_crypto_decrypt_command(decrypted, &dec_len, &counter_out, session_key,
-                                         BLERPC_DIRECTION_C2P, encrypted, enc_len) == 0);
+    assert(blerpc_crypto_decrypt_command(decrypted, sizeof(decrypted), &dec_len, &counter_out,
+                                         session_key, BLERPC_DIRECTION_C2P,
+                                         encrypted, enc_len) == 0);
     assert(dec_len == pt_len);
     assert(counter_out == 42);
     assert(memcmp(decrypted, plaintext, pt_len) == 0);
@@ -189,19 +191,19 @@ static void test_session_encrypt_decrypt(void)
     /* Central encrypts, peripheral decrypts */
     uint8_t ct[256];
     size_t ct_len;
-    assert(blerpc_crypto_session_encrypt(&central, ct, &ct_len, msg, msg_len) == 0);
+    assert(blerpc_crypto_session_encrypt(&central, ct, sizeof(ct), &ct_len, msg, msg_len) == 0);
 
     uint8_t pt[256];
     size_t pt_len;
-    assert(blerpc_crypto_session_decrypt(&peripheral, pt, &pt_len, ct, ct_len) == 0);
+    assert(blerpc_crypto_session_decrypt(&peripheral, pt, sizeof(pt), &pt_len, ct, ct_len) == 0);
     assert(pt_len == msg_len);
     assert(memcmp(pt, msg, msg_len) == 0);
 
     /* Peripheral encrypts, central decrypts */
     const uint8_t msg2[] = "response data";
     size_t msg2_len = sizeof(msg2) - 1;
-    assert(blerpc_crypto_session_encrypt(&peripheral, ct, &ct_len, msg2, msg2_len) == 0);
-    assert(blerpc_crypto_session_decrypt(&central, pt, &pt_len, ct, ct_len) == 0);
+    assert(blerpc_crypto_session_encrypt(&peripheral, ct, sizeof(ct), &ct_len, msg2, msg2_len) == 0);
+    assert(blerpc_crypto_session_decrypt(&central, pt, sizeof(pt), &pt_len, ct, ct_len) == 0);
     assert(pt_len == msg2_len);
     assert(memcmp(pt, msg2, msg2_len) == 0);
 }
@@ -220,15 +222,15 @@ static void test_replay_detection(void)
 
     uint8_t ct[256];
     size_t ct_len;
-    assert(blerpc_crypto_session_encrypt(&central, ct, &ct_len, msg, msg_len) == 0);
+    assert(blerpc_crypto_session_encrypt(&central, ct, sizeof(ct), &ct_len, msg, msg_len) == 0);
 
     /* First decrypt succeeds */
     uint8_t pt[256];
     size_t pt_len;
-    assert(blerpc_crypto_session_decrypt(&peripheral, pt, &pt_len, ct, ct_len) == 0);
+    assert(blerpc_crypto_session_decrypt(&peripheral, pt, sizeof(pt), &pt_len, ct, ct_len) == 0);
 
     /* Second decrypt with same ciphertext should fail (replay) */
-    assert(blerpc_crypto_session_decrypt(&peripheral, pt, &pt_len, ct, ct_len) != 0);
+    assert(blerpc_crypto_session_decrypt(&peripheral, pt, sizeof(pt), &pt_len, ct, ct_len) != 0);
 }
 
 #if HAS_EDDSA
@@ -237,20 +239,18 @@ static void test_central_key_exchange_full_flow(void)
     struct blerpc_central_key_exchange central_kx;
     struct blerpc_peripheral_key_exchange periph_kx;
 
-    /* Generate peripheral long-term keys */
-    uint8_t x25519_privkey[BLERPC_X25519_KEY_SIZE];
+    /* Generate peripheral long-term Ed25519 key (X25519 is now ephemeral) */
     uint8_t ed25519_seed[32];
-    assert(psa_generate_random(x25519_privkey, sizeof(x25519_privkey)) == PSA_SUCCESS);
     assert(psa_generate_random(ed25519_seed, sizeof(ed25519_seed)) == PSA_SUCCESS);
 
     assert(blerpc_central_kx_init(&central_kx) == 0);
-    assert(blerpc_peripheral_kx_init(&periph_kx, x25519_privkey, ed25519_seed) == 0);
+    assert(blerpc_peripheral_kx_init(&periph_kx, ed25519_seed) == 0);
 
     /* Step 1: Central -> Peripheral */
     uint8_t step1[BLERPC_STEP1_SIZE];
     assert(blerpc_central_kx_start(&central_kx, step1) == 0);
 
-    /* Step 2: Peripheral -> Central */
+    /* Step 2: Peripheral -> Central (ephemeral X25519 generated here) */
     uint8_t step2[BLERPC_STEP2_SIZE];
     assert(blerpc_peripheral_kx_process_step1(&periph_kx, step1, BLERPC_STEP1_SIZE, step2) == 0);
 
@@ -276,8 +276,8 @@ static void test_central_key_exchange_full_flow(void)
     uint8_t ct[256], pt[256];
     size_t ct_len, pt_len;
 
-    assert(blerpc_crypto_session_encrypt(&central_session, ct, &ct_len, msg, msg_len) == 0);
-    assert(blerpc_crypto_session_decrypt(&periph_session, pt, &pt_len, ct, ct_len) == 0);
+    assert(blerpc_crypto_session_encrypt(&central_session, ct, sizeof(ct), &ct_len, msg, msg_len) == 0);
+    assert(blerpc_crypto_session_decrypt(&periph_session, pt, sizeof(pt), &pt_len, ct, ct_len) == 0);
     assert(pt_len == msg_len);
     assert(memcmp(pt, msg, msg_len) == 0);
 }
@@ -287,13 +287,11 @@ static void test_peripheral_handle_step(void)
     struct blerpc_central_key_exchange central_kx;
     struct blerpc_peripheral_key_exchange periph_kx;
 
-    uint8_t x25519_privkey[BLERPC_X25519_KEY_SIZE];
     uint8_t ed25519_seed[32];
-    assert(psa_generate_random(x25519_privkey, sizeof(x25519_privkey)) == PSA_SUCCESS);
     assert(psa_generate_random(ed25519_seed, sizeof(ed25519_seed)) == PSA_SUCCESS);
 
     assert(blerpc_central_kx_init(&central_kx) == 0);
-    assert(blerpc_peripheral_kx_init(&periph_kx, x25519_privkey, ed25519_seed) == 0);
+    assert(blerpc_peripheral_kx_init(&periph_kx, ed25519_seed) == 0);
 
     /* Step 1 via handle_step */
     uint8_t step1[BLERPC_STEP1_SIZE];

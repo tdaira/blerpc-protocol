@@ -133,6 +133,11 @@ int container_assembler_feed(struct container_assembler *a, const struct contain
         memcpy(a->buf + a->received_length, hdr->payload, hdr->payload_len);
         a->received_length += hdr->payload_len;
         a->expected_seq++;
+        if (a->expected_seq == 0) {
+            /* Sequence number overflow */
+            container_assembler_init(a);
+            return -1;
+        }
     }
 
     if (a->received_length >= a->total_length) {
@@ -153,8 +158,16 @@ int container_split_and_send(uint8_t transaction_id, const uint8_t *payload, siz
     uint16_t effective_mtu = mtu - CONTAINER_ATT_OVERHEAD;
     uint8_t buf[256]; /* Max single BLE packet */
 
+    if (effective_mtu < CONTAINER_FIRST_HEADER_SIZE + 1) {
+        return -1; /* MTU too small */
+    }
+
     /* First container */
-    uint8_t first_max = (uint8_t)(effective_mtu - CONTAINER_FIRST_HEADER_SIZE);
+    uint16_t first_max_u16 = effective_mtu - CONTAINER_FIRST_HEADER_SIZE;
+    if (first_max_u16 > UINT8_MAX) {
+        first_max_u16 = UINT8_MAX;
+    }
+    uint8_t first_max = (uint8_t)first_max_u16;
     uint8_t first_len = (payload_len < first_max) ? (uint8_t)payload_len : first_max;
 
     struct container_header hdr = {
@@ -176,7 +189,11 @@ int container_split_and_send(uint8_t transaction_id, const uint8_t *payload, siz
 
     size_t offset = first_len;
     uint8_t seq = 1;
-    uint8_t sub_max = (uint8_t)(effective_mtu - CONTAINER_SUBSEQUENT_HEADER_SIZE);
+    uint16_t sub_max_u16 = effective_mtu - CONTAINER_SUBSEQUENT_HEADER_SIZE;
+    if (sub_max_u16 > UINT8_MAX) {
+        sub_max_u16 = UINT8_MAX;
+    }
+    uint8_t sub_max = (uint8_t)sub_max_u16;
 
     while (offset < payload_len) {
         uint8_t chunk_len =
@@ -201,6 +218,9 @@ int container_split_and_send(uint8_t transaction_id, const uint8_t *payload, siz
 
         offset += chunk_len;
         seq++;
+        if (seq == 0 && offset < payload_len) {
+            return -1; /* sequence number overflow */
+        }
     }
 
     return 0;

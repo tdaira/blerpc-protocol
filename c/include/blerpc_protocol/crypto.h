@@ -113,7 +113,8 @@ int blerpc_crypto_ed25519_verify(const uint8_t pubkey[BLERPC_ED25519_PUBKEY_SIZE
 
 /**
  * Encrypt a command payload with AES-128-GCM.
- * out: output buffer, must be at least plaintext_len + BLERPC_ENCRYPTED_OVERHEAD bytes
+ * out: output buffer
+ * out_size: output buffer capacity (must be >= plaintext_len + BLERPC_ENCRYPTED_OVERHEAD)
  * out_len: output - actual bytes written
  * session_key: 16-byte session key
  * counter: message counter
@@ -122,14 +123,15 @@ int blerpc_crypto_ed25519_verify(const uint8_t pubkey[BLERPC_ED25519_PUBKEY_SIZE
  * plaintext_len: data length
  * Returns 0 on success, -1 on error.
  */
-int blerpc_crypto_encrypt_command(uint8_t *out, size_t *out_len,
+int blerpc_crypto_encrypt_command(uint8_t *out, size_t out_size, size_t *out_len,
                                    const uint8_t session_key[BLERPC_SESSION_KEY_SIZE],
                                    uint32_t counter, uint8_t direction,
                                    const uint8_t *plaintext, size_t plaintext_len);
 
 /**
  * Decrypt a command payload with AES-128-GCM.
- * out: output buffer, must be at least data_len - BLERPC_ENCRYPTED_OVERHEAD bytes
+ * out: output buffer
+ * out_size: output buffer capacity (must be >= data_len - BLERPC_ENCRYPTED_OVERHEAD)
  * out_len: output - actual bytes written
  * counter_out: output - the counter value from the encrypted payload
  * session_key: 16-byte session key
@@ -138,7 +140,8 @@ int blerpc_crypto_encrypt_command(uint8_t *out, size_t *out_len,
  * data_len: total encrypted data length
  * Returns 0 on success, -1 on error (includes authentication failure).
  */
-int blerpc_crypto_decrypt_command(uint8_t *out, size_t *out_len, uint32_t *counter_out,
+int blerpc_crypto_decrypt_command(uint8_t *out, size_t out_size, size_t *out_len,
+                                   uint32_t *counter_out,
                                    const uint8_t session_key[BLERPC_SESSION_KEY_SIZE],
                                    uint8_t direction,
                                    const uint8_t *data, size_t data_len);
@@ -175,18 +178,20 @@ void blerpc_crypto_session_init(struct blerpc_crypto_session *s,
 
 /**
  * Encrypt using session state (auto-increments tx_counter).
+ * out_size: output buffer capacity (must be >= plaintext_len + BLERPC_ENCRYPTED_OVERHEAD)
  * Returns 0 on success, -1 on error.
  */
 int blerpc_crypto_session_encrypt(struct blerpc_crypto_session *s,
-                                   uint8_t *out, size_t *out_len,
+                                   uint8_t *out, size_t out_size, size_t *out_len,
                                    const uint8_t *plaintext, size_t plaintext_len);
 
 /**
  * Decrypt using session state (validates and updates rx_counter).
+ * out_size: output buffer capacity (must be >= data_len - BLERPC_ENCRYPTED_OVERHEAD)
  * Returns 0 on success, -1 on error (includes replay detection).
  */
 int blerpc_crypto_session_decrypt(struct blerpc_crypto_session *s,
-                                   uint8_t *out, size_t *out_len,
+                                   uint8_t *out, size_t out_size, size_t *out_len,
                                    const uint8_t *data, size_t data_len);
 
 /**
@@ -251,14 +256,12 @@ struct blerpc_peripheral_key_exchange {
 };
 
 /**
- * Initialize peripheral key exchange with long-term keys.
- * Derives public keys from private keys.
- * x25519_privkey: 32-byte X25519 private key
+ * Initialize peripheral key exchange with long-term Ed25519 key.
+ * X25519 keypair is generated ephemerally per session in process_step1.
  * ed25519_privkey: 32-byte Ed25519 seed
  * Returns 0 on success, -1 on error.
  */
 int blerpc_peripheral_kx_init(struct blerpc_peripheral_key_exchange *kx,
-                               const uint8_t x25519_privkey[BLERPC_X25519_KEY_SIZE],
                                const uint8_t ed25519_privkey[32]);
 
 /**
@@ -284,6 +287,13 @@ int blerpc_peripheral_kx_process_step3(struct blerpc_peripheral_key_exchange *kx
                                         const uint8_t *step3, size_t step3_len,
                                         uint8_t out[BLERPC_STEP4_SIZE],
                                         struct blerpc_crypto_session *session_out);
+
+/**
+ * Reset peripheral key exchange state (e.g., on disconnect).
+ * Clears ephemeral keys and resets state to accept a new step 1.
+ * The long-term Ed25519 key pair is preserved.
+ */
+void blerpc_peripheral_kx_reset(struct blerpc_peripheral_key_exchange *kx);
 
 /**
  * Callback function type for sending key exchange payloads.

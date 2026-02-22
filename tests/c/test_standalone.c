@@ -325,6 +325,67 @@ static void test_capability_flag_constant(void)
     assert(CAPABILITY_FLAG_ENCRYPTION_SUPPORTED == 0x0001);
 }
 
+/* ===== Security fix tests ===== */
+
+static void test_assembler_sequence_overflow(void)
+{
+    /* M-4: Feed enough subsequent containers to overflow the uint8_t seq counter */
+    struct container_assembler a;
+    container_assembler_init(&a);
+
+    /* Start with a large total_length so assembly never completes */
+    struct container_header first = {
+        .transaction_id = 1,
+        .sequence_number = 0,
+        .type = CONTAINER_TYPE_FIRST,
+        .total_length = CONTAINER_ASSEMBLER_BUF_SIZE,
+        .payload_len = 1,
+        .payload = (const uint8_t *)"X",
+    };
+    assert(container_assembler_feed(&a, &first) == 0);
+
+    /* Feed seq 1..254 (254 subsequent containers) */
+    for (int seq = 1; seq <= 254; seq++) {
+        struct container_header sub = {
+            .transaction_id = 1,
+            .sequence_number = (uint8_t)seq,
+            .type = CONTAINER_TYPE_SUBSEQUENT,
+            .payload_len = 1,
+            .payload = (const uint8_t *)"Y",
+        };
+        int rc = container_assembler_feed(&a, &sub);
+        /* Should still be assembling (unless buf size reached) */
+        if (rc != 0)
+            break;
+    }
+
+    /* Feed seq 255 — after this, expected_seq wraps to 0 */
+    struct container_header sub255 = {
+        .transaction_id = 1,
+        .sequence_number = 255,
+        .type = CONTAINER_TYPE_SUBSEQUENT,
+        .payload_len = 1,
+        .payload = (const uint8_t *)"Z",
+    };
+    int rc = container_assembler_feed(&a, &sub255);
+    /* Should return -1 (overflow detected) since expected_seq wraps to 0 */
+    assert(rc == -1);
+}
+
+static void test_split_mtu_too_small(void)
+{
+    /* M-5: MTU so small that first container header doesn't fit */
+    uint8_t payload[] = "test";
+    send_buf_offset = 0;
+    send_count = 0;
+    /* MTU of 3 + CONTAINER_ATT_OVERHEAD(3) = 6, minus FIRST_HEADER(6) = 0 payload bytes → fail */
+    int rc = container_split_and_send(0, payload, 4, 3 + 3 + 5, mock_send, NULL);
+    /* MTU = 11, effective = 8, 8 - 6 = 2 payload bytes → should work for small payload */
+    /* But MTU = 3 + 3 = 6, effective = 3, 3 - 6 = underflow → should fail */
+    rc = container_split_and_send(0, payload, 4, 3 + 3, mock_send, NULL);
+    assert(rc == -1);
+}
+
 static void test_control_key_exchange_container(void)
 {
     /* Build a KEY_EXCHANGE control container */
@@ -372,6 +433,10 @@ int main(void)
     TEST(test_command_empty_data);
     TEST(test_command_parse_too_short);
     TEST(test_command_data_len_little_endian);
+
+    printf("\nSecurity fix tests:\n");
+    TEST(test_assembler_sequence_overflow);
+    TEST(test_split_mtu_too_small);
 
     printf("\nEncryption constants tests:\n");
     TEST(test_key_exchange_constant);

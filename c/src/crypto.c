@@ -1,6 +1,7 @@
 #include "blerpc_protocol/crypto.h"
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <string.h>
 
 #include <mbedtls/platform_util.h>
@@ -200,11 +201,16 @@ int blerpc_crypto_ed25519_verify(const uint8_t pubkey[BLERPC_ED25519_PUBKEY_SIZE
     return (status == PSA_SUCCESS) ? 0 : -1;
 }
 
-int blerpc_crypto_encrypt_command(uint8_t *out, size_t *out_len,
+int blerpc_crypto_encrypt_command(uint8_t *out, size_t out_size, size_t *out_len,
                                    const uint8_t session_key[BLERPC_SESSION_KEY_SIZE],
                                    uint32_t counter, uint8_t direction,
                                    const uint8_t *plaintext, size_t plaintext_len)
 {
+    size_t required = plaintext_len + BLERPC_ENCRYPTED_OVERHEAD;
+    if (out_size < required) {
+        return -1;
+    }
+
     psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
     psa_key_id_t key_id;
     psa_status_t status;
@@ -234,7 +240,7 @@ int blerpc_crypto_encrypt_command(uint8_t *out, size_t *out_len,
                                NULL, 0,
                                plaintext, plaintext_len,
                                out + BLERPC_COUNTER_SIZE,
-                               plaintext_len + BLERPC_AES_GCM_TAG_SIZE,
+                               out_size - BLERPC_COUNTER_SIZE,
                                &ct_len);
     psa_destroy_key(key_id);
     if (status != PSA_SUCCESS) {
@@ -245,12 +251,18 @@ int blerpc_crypto_encrypt_command(uint8_t *out, size_t *out_len,
     return 0;
 }
 
-int blerpc_crypto_decrypt_command(uint8_t *out, size_t *out_len, uint32_t *counter_out,
+int blerpc_crypto_decrypt_command(uint8_t *out, size_t out_size, size_t *out_len,
+                                   uint32_t *counter_out,
                                    const uint8_t session_key[BLERPC_SESSION_KEY_SIZE],
                                    uint8_t direction,
                                    const uint8_t *data, size_t data_len)
 {
     if (data_len < BLERPC_ENCRYPTED_OVERHEAD) {
+        return -1;
+    }
+
+    size_t plaintext_len = data_len - BLERPC_ENCRYPTED_OVERHEAD;
+    if (out_size < plaintext_len) {
         return -1;
     }
 
@@ -282,7 +294,7 @@ int blerpc_crypto_decrypt_command(uint8_t *out, size_t *out_len, uint32_t *count
                                nonce, BLERPC_AES_GCM_NONCE_SIZE,
                                NULL, 0,
                                data + BLERPC_COUNTER_SIZE, ct_and_tag_len,
-                               out, ct_and_tag_len - BLERPC_AES_GCM_TAG_SIZE,
+                               out, out_size,
                                out_len);
     psa_destroy_key(key_id);
     if (status != PSA_SUCCESS) {
@@ -375,14 +387,18 @@ void blerpc_crypto_session_init(struct blerpc_crypto_session *s,
 }
 
 int blerpc_crypto_session_encrypt(struct blerpc_crypto_session *s,
-                                   uint8_t *out, size_t *out_len,
+                                   uint8_t *out, size_t out_size, size_t *out_len,
                                    const uint8_t *plaintext, size_t plaintext_len)
 {
     if (!s->active) {
         return -1;
     }
 
-    int rc = blerpc_crypto_encrypt_command(out, out_len,
+    if (s->tx_counter == UINT32_MAX) {
+        return -1;
+    }
+
+    int rc = blerpc_crypto_encrypt_command(out, out_size, out_len,
                                             s->session_key, s->tx_counter,
                                             s->tx_direction,
                                             plaintext, plaintext_len);
@@ -393,7 +409,7 @@ int blerpc_crypto_session_encrypt(struct blerpc_crypto_session *s,
 }
 
 int blerpc_crypto_session_decrypt(struct blerpc_crypto_session *s,
-                                   uint8_t *out, size_t *out_len,
+                                   uint8_t *out, size_t out_size, size_t *out_len,
                                    const uint8_t *data, size_t data_len)
 {
     if (!s->active) {
@@ -401,7 +417,7 @@ int blerpc_crypto_session_decrypt(struct blerpc_crypto_session *s,
     }
 
     uint32_t counter;
-    int rc = blerpc_crypto_decrypt_command(out, out_len, &counter,
+    int rc = blerpc_crypto_decrypt_command(out, out_size, out_len, &counter,
                                             s->session_key, s->rx_direction,
                                             data, data_len);
     if (rc != 0) {
@@ -443,6 +459,9 @@ int blerpc_central_kx_process_step2(struct blerpc_central_key_exchange *kx,
                                      uint8_t out[BLERPC_STEP3_SIZE],
                                      uint8_t periph_ed25519_pubkey_out[BLERPC_ED25519_PUBKEY_SIZE])
 {
+    if (kx->state != 1) {
+        return -1;
+    }
     if (step2_len < BLERPC_STEP2_SIZE || step2[0] != BLERPC_KEY_EXCHANGE_STEP2) {
         return -1;
     }
@@ -498,6 +517,9 @@ int blerpc_central_kx_finish(struct blerpc_central_key_exchange *kx,
                               const uint8_t *step4, size_t step4_len,
                               struct blerpc_crypto_session *session_out)
 {
+    if (kx->state != 2) {
+        return -1;
+    }
     if (step4_len < BLERPC_STEP4_SIZE || step4[0] != BLERPC_KEY_EXCHANGE_STEP4) {
         return -1;
     }
@@ -519,40 +541,15 @@ int blerpc_central_kx_finish(struct blerpc_central_key_exchange *kx,
 /* ── Peripheral key exchange state machine ───────────────────────────── */
 
 int blerpc_peripheral_kx_init(struct blerpc_peripheral_key_exchange *kx,
-                               const uint8_t x25519_privkey[BLERPC_X25519_KEY_SIZE],
                                const uint8_t ed25519_privkey[32])
 {
     memset(kx, 0, sizeof(*kx));
-    memcpy(kx->x25519_privkey, x25519_privkey, BLERPC_X25519_KEY_SIZE);
 
-    /* RFC 7748 clamping: work around CRACEN driver not clamping during
-     * psa_export_public_key (see blerpc_crypto_x25519_keygen comment). */
-    kx->x25519_privkey[0] &= 0xF8;
-    kx->x25519_privkey[31] &= 0x7F;
-    kx->x25519_privkey[31] |= 0x40;
-
-    /* Derive X25519 public key from private key */
+    /* Derive Ed25519 public key from seed, store full key (seed + pubkey) */
     psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
     psa_key_id_t key_id;
     size_t pubkey_len;
 
-    psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_DERIVE | PSA_KEY_USAGE_EXPORT);
-    psa_set_key_algorithm(&attr, PSA_ALG_ECDH);
-    psa_set_key_type(&attr, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_MONTGOMERY));
-    psa_set_key_bits(&attr, 255);
-
-    if (psa_import_key(&attr, kx->x25519_privkey, BLERPC_X25519_KEY_SIZE, &key_id) != PSA_SUCCESS) {
-        return -1;
-    }
-    psa_status_t status = psa_export_public_key(key_id, kx->x25519_pubkey,
-                                                 BLERPC_X25519_KEY_SIZE, &pubkey_len);
-    psa_destroy_key(key_id);
-    if (status != PSA_SUCCESS) {
-        return -1;
-    }
-
-    /* Derive Ed25519 public key from seed, store full key (seed + pubkey) */
-    psa_reset_key_attributes(&attr);
     psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_SIGN_MESSAGE | PSA_KEY_USAGE_EXPORT);
     psa_set_key_algorithm(&attr, PSA_ALG_PURE_EDDSA);
     psa_set_key_type(&attr, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_TWISTED_EDWARDS));
@@ -561,7 +558,7 @@ int blerpc_peripheral_kx_init(struct blerpc_peripheral_key_exchange *kx,
     if (psa_import_key(&attr, ed25519_privkey, 32, &key_id) != PSA_SUCCESS) {
         return -1;
     }
-    status = psa_export_public_key(key_id, kx->ed25519_pubkey,
+    psa_status_t status = psa_export_public_key(key_id, kx->ed25519_pubkey,
                                     BLERPC_ED25519_PUBKEY_SIZE, &pubkey_len);
     psa_destroy_key(key_id);
     if (status != PSA_SUCCESS) {
@@ -580,6 +577,11 @@ int blerpc_peripheral_kx_process_step1(struct blerpc_peripheral_key_exchange *kx
                                         uint8_t out[BLERPC_STEP2_SIZE])
 {
     if (step1_len < BLERPC_STEP1_SIZE || step1[0] != BLERPC_KEY_EXCHANGE_STEP1) {
+        return -1;
+    }
+
+    /* Generate ephemeral X25519 keypair for this session (forward secrecy) */
+    if (blerpc_crypto_x25519_keygen(kx->x25519_privkey, kx->x25519_pubkey) != 0) {
         return -1;
     }
 
@@ -654,6 +656,14 @@ int blerpc_peripheral_kx_process_step3(struct blerpc_peripheral_key_exchange *kx
     return 0;
 }
 
+void blerpc_peripheral_kx_reset(struct blerpc_peripheral_key_exchange *kx)
+{
+    kx->state = 0;
+    memset(kx->x25519_privkey, 0, sizeof(kx->x25519_privkey));
+    memset(kx->x25519_pubkey, 0, sizeof(kx->x25519_pubkey));
+    memset(kx->session_key, 0, sizeof(kx->session_key));
+}
+
 /* ── High-level key exchange helpers ─────────────────────────────────── */
 
 int blerpc_central_perform_key_exchange(
@@ -726,6 +736,9 @@ int blerpc_peripheral_kx_handle_step(
     uint8_t step = payload[0];
 
     if (step == BLERPC_KEY_EXCHANGE_STEP1) {
+        if (kx->state != 0) {
+            return -1;
+        }
         if (out_size < BLERPC_STEP2_SIZE) {
             return -1;
         }
@@ -737,6 +750,9 @@ int blerpc_peripheral_kx_handle_step(
         return 0;
 
     } else if (step == BLERPC_KEY_EXCHANGE_STEP3) {
+        if (kx->state != 1) {
+            return -1;
+        }
         if (out_size < BLERPC_STEP4_SIZE) {
             return -1;
         }
