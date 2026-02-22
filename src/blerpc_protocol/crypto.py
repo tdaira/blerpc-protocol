@@ -418,7 +418,8 @@ class PeripheralKeyExchange:
         self._state = 0
 
     def process_step1(self, step1_payload: bytes) -> bytes:
-        """Parse step 1, generate ephemeral X25519 keypair, sign, derive session key, return step 2 payload."""
+        """Parse step 1, generate ephemeral X25519 keypair, sign,
+        derive session key, return step 2 payload."""
         if self._state != 0:
             raise RuntimeError("Invalid state for process_step1()")
         central_x25519_pubkey = BlerpcCrypto.parse_step1_payload(step1_payload)
