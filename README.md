@@ -1,15 +1,16 @@
 # blerpc-protocol
 
-Container and command protocol layers for bleRPC — available as both a Python package and a C library.
+BLE RPC protocol library for Python and C.
 
 Part of the [bleRPC](https://blerpc.net) project.
 
 ## Overview
 
-This library implements the binary protocol used by bleRPC:
+Python and C implementation of the bleRPC binary protocol:
 
-- **Container layer** — MTU-aware fragmentation and reassembly of payloads, control messages (timeout, stream end, capabilities, error)
-- **Command layer** — request/response encoding with command name routing and protobuf data
+- Container fragmentation and reassembly with MTU-aware splitting
+- Command packet encoding/decoding with protobuf payload support
+- Control messages (timeout, stream end, capabilities, error)
 - **Encryption layer** — E2E encryption with X25519 key exchange, Ed25519 signatures, and AES-128-GCM
 
 The Python and C implementations are fully compatible and share the same wire format.
@@ -19,8 +20,6 @@ The Python and C implementations are fully compatible and share the same wire fo
 ```
 pip install blerpc-protocol
 ```
-
-Requires Python 3.11+.
 
 ## Usage
 
@@ -72,6 +71,10 @@ The C implementation is a Zephyr module with zero external dependencies. Add it 
 ```
 
 Headers are in `c/include/blerpc_protocol/`. See [container.h](c/include/blerpc_protocol/container.h), [command.h](c/include/blerpc_protocol/command.h), and [crypto.h](c/include/blerpc_protocol/crypto.h) for the API.
+
+## Requirements
+
+- Python 3.11+
 
 ## License
 
