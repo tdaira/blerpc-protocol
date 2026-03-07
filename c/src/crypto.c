@@ -307,7 +307,7 @@ int blerpc_crypto_decrypt_command(uint8_t *out, size_t out_size, size_t *out_len
     return 0;
 }
 
-int blerpc_crypto_encrypt_confirmation(uint8_t out[44],
+int blerpc_crypto_encrypt_confirmation(uint8_t out[BLERPC_CONFIRMATION_SIZE],
                                         const uint8_t session_key[BLERPC_SESSION_KEY_SIZE],
                                         const uint8_t message[BLERPC_CONFIRM_LEN])
 {
@@ -345,7 +345,7 @@ int blerpc_crypto_encrypt_confirmation(uint8_t out[44],
 
 int blerpc_crypto_decrypt_confirmation(uint8_t out[BLERPC_CONFIRM_LEN],
                                         const uint8_t session_key[BLERPC_SESSION_KEY_SIZE],
-                                        const uint8_t data[44])
+                                        const uint8_t data[BLERPC_CONFIRMATION_SIZE])
 {
     psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
     psa_key_id_t key_id;
@@ -500,15 +500,15 @@ int blerpc_central_kx_process_step2(struct blerpc_central_key_exchange *kx,
     }
     mbedtls_platform_zeroize(shared_secret, sizeof(shared_secret));
 
-    /* Build step 3: [0x03][encrypted_confirmation:44] */
-    uint8_t confirmation[44];
+    /* Build step 3: [0x03][encrypted_confirmation] */
+    uint8_t confirmation[BLERPC_CONFIRMATION_SIZE];
     if (blerpc_crypto_encrypt_confirmation(confirmation, kx->session_key,
                                             (const uint8_t *)BLERPC_CONFIRM_CENTRAL) != 0) {
         return -1;
     }
 
     out[0] = BLERPC_KEY_EXCHANGE_STEP3;
-    memcpy(out + 1, confirmation, 44);
+    memcpy(out + 1, confirmation, BLERPC_CONFIRMATION_SIZE);
     kx->state = 2;
     return 0;
 }
@@ -642,15 +642,15 @@ int blerpc_peripheral_kx_process_step3(struct blerpc_peripheral_key_exchange *kx
         return -1;
     }
 
-    /* Build step 4: [0x04][encrypted_confirmation:44] */
-    uint8_t confirmation[44];
+    /* Build step 4: [0x04][encrypted_confirmation] */
+    uint8_t confirmation[BLERPC_CONFIRMATION_SIZE];
     if (blerpc_crypto_encrypt_confirmation(confirmation, kx->session_key,
                                             (const uint8_t *)BLERPC_CONFIRM_PERIPHERAL) != 0) {
         return -1;
     }
 
     out[0] = BLERPC_KEY_EXCHANGE_STEP4;
-    memcpy(out + 1, confirmation, 44);
+    memcpy(out + 1, confirmation, BLERPC_CONFIRMATION_SIZE);
 
     blerpc_crypto_session_init(session_out, kx->session_key, 0);
     return 0;
