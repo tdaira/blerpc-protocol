@@ -7,6 +7,7 @@ import struct
 import threading
 from collections.abc import Awaitable, Callable
 
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
@@ -116,7 +117,7 @@ class BlerpcCrypto:
             public_key = Ed25519PublicKey.from_public_bytes(public_key_bytes)
             public_key.verify(signature, message)
             return True
-        except Exception:
+        except (ValueError, InvalidSignature):
             return False
 
     @staticmethod

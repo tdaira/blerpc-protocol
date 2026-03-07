@@ -29,6 +29,7 @@ extern "C" {
 #define BLERPC_AES_GCM_NONCE_SIZE 12
 #define BLERPC_COUNTER_SIZE 4
 #define BLERPC_ENCRYPTED_OVERHEAD (BLERPC_COUNTER_SIZE + BLERPC_AES_GCM_TAG_SIZE)
+#define BLERPC_CONFIRMATION_SIZE (BLERPC_AES_GCM_NONCE_SIZE + BLERPC_CONFIRM_LEN + BLERPC_AES_GCM_TAG_SIZE) /* 44 */
 
 /* Confirmation plaintexts */
 #define BLERPC_CONFIRM_CENTRAL  "BLERPC_CONFIRM_C"
@@ -153,7 +154,7 @@ int blerpc_crypto_decrypt_command(uint8_t *out, size_t out_size, size_t *out_len
  * message: 16-byte confirmation plaintext
  * Returns 0 on success, -1 on error.
  */
-int blerpc_crypto_encrypt_confirmation(uint8_t out[44],
+int blerpc_crypto_encrypt_confirmation(uint8_t out[BLERPC_CONFIRMATION_SIZE],
                                         const uint8_t session_key[BLERPC_SESSION_KEY_SIZE],
                                         const uint8_t message[BLERPC_CONFIRM_LEN]);
 
@@ -166,7 +167,7 @@ int blerpc_crypto_encrypt_confirmation(uint8_t out[44],
  */
 int blerpc_crypto_decrypt_confirmation(uint8_t out[BLERPC_CONFIRM_LEN],
                                         const uint8_t session_key[BLERPC_SESSION_KEY_SIZE],
-                                        const uint8_t data[44]);
+                                        const uint8_t data[BLERPC_CONFIRMATION_SIZE]);
 
 /**
  * Initialize a crypto session after key derivation.
