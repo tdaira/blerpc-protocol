@@ -327,9 +327,9 @@ static void test_decrypt_too_short_data(void)
     uint8_t out[256];
     size_t out_len;
     uint32_t counter_out;
-    assert(blerpc_crypto_decrypt_command(out, sizeof(out), &out_len, &counter_out,
-                                         session_key, BLERPC_DIRECTION_C2P,
-                                         short_data, sizeof(short_data)) != 0);
+    assert(blerpc_crypto_decrypt_command(out, sizeof(out), &out_len, &counter_out, session_key,
+                                         BLERPC_DIRECTION_C2P, short_data,
+                                         sizeof(short_data)) != 0);
 }
 
 static void test_empty_payload_encrypt_decrypt(void)
@@ -364,8 +364,10 @@ static void test_session_inactive(void)
     uint8_t out[256];
     size_t out_len;
 
-    assert(blerpc_crypto_session_encrypt(&s, out, sizeof(out), &out_len, msg, sizeof(msg) - 1) != 0);
-    assert(blerpc_crypto_session_decrypt(&s, out, sizeof(out), &out_len, msg, sizeof(msg) - 1) != 0);
+    assert(blerpc_crypto_session_encrypt(&s, out, sizeof(out), &out_len, msg, sizeof(msg) - 1) !=
+           0);
+    assert(blerpc_crypto_session_decrypt(&s, out, sizeof(out), &out_len, msg, sizeof(msg) - 1) !=
+           0);
 }
 
 static void test_session_counter_overflow(void)
@@ -381,7 +383,8 @@ static void test_session_counter_overflow(void)
     const uint8_t msg[] = "overflow";
     uint8_t out[256];
     size_t out_len;
-    assert(blerpc_crypto_session_encrypt(&s, out, sizeof(out), &out_len, msg, sizeof(msg) - 1) != 0);
+    assert(blerpc_crypto_session_encrypt(&s, out, sizeof(out), &out_len, msg, sizeof(msg) - 1) !=
+           0);
 }
 
 static void test_confirmation_wrong_key(void)
@@ -418,12 +421,14 @@ static void test_kx_bad_step_payloads(void)
 
     /* Step 1 too short */
     uint8_t short_step1[2] = {BLERPC_KEY_EXCHANGE_STEP1, 0};
-    assert(blerpc_peripheral_kx_process_step1(&periph_kx, short_step1, sizeof(short_step1), NULL) != 0);
+    assert(blerpc_peripheral_kx_process_step1(&periph_kx, short_step1, sizeof(short_step1), NULL) !=
+           0);
 
     /* Process step2 before step1 (wrong state) */
     uint8_t dummy_step2[BLERPC_STEP2_SIZE];
     dummy_step2[0] = BLERPC_KEY_EXCHANGE_STEP2;
-    assert(blerpc_central_kx_process_step2(&central_kx, dummy_step2, BLERPC_STEP2_SIZE, NULL, NULL) != 0);
+    assert(blerpc_central_kx_process_step2(&central_kx, dummy_step2, BLERPC_STEP2_SIZE, NULL,
+                                           NULL) != 0);
 
     /* Finish before step2 processed (wrong state) */
     uint8_t dummy_step4[BLERPC_STEP4_SIZE];
@@ -444,8 +449,8 @@ static void test_handle_step_bad_inputs(void)
     bool established;
 
     /* Empty payload */
-    assert(blerpc_peripheral_kx_handle_step(&kx, NULL, 0, out, sizeof(out),
-                                            &out_len, &session, &established) != 0);
+    assert(blerpc_peripheral_kx_handle_step(&kx, NULL, 0, out, sizeof(out), &out_len, &session,
+                                            &established) != 0);
 
     /* Unknown step byte */
     uint8_t unknown[2] = {0xFF, 0};
@@ -463,8 +468,9 @@ static void test_handle_step_bad_inputs(void)
     step1[0] = BLERPC_KEY_EXCHANGE_STEP1;
     assert(psa_generate_random(step1 + 1, BLERPC_X25519_KEY_SIZE) == PSA_SUCCESS);
     uint8_t tiny_out[4];
-    assert(blerpc_peripheral_kx_handle_step(&kx, step1, BLERPC_STEP1_SIZE, tiny_out, sizeof(tiny_out),
-                                            &out_len, &session, &established) != 0);
+    assert(blerpc_peripheral_kx_handle_step(&kx, step1, BLERPC_STEP1_SIZE, tiny_out,
+                                            sizeof(tiny_out), &out_len, &session,
+                                            &established) != 0);
 }
 
 static void test_peripheral_kx_reset(void)
@@ -496,7 +502,8 @@ static void test_peripheral_kx_reset(void)
     assert(blerpc_central_kx_start(&central_kx2, step1_2) == 0);
 
     uint8_t step2_2[BLERPC_STEP2_SIZE];
-    assert(blerpc_peripheral_kx_process_step1(&periph_kx, step1_2, BLERPC_STEP1_SIZE, step2_2) == 0);
+    assert(blerpc_peripheral_kx_process_step1(&periph_kx, step1_2, BLERPC_STEP1_SIZE, step2_2) ==
+           0);
 }
 #endif /* HAS_EDDSA - kx edge cases */
 
