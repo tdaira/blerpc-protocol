@@ -233,6 +233,280 @@ static void test_replay_detection(void)
     assert(blerpc_crypto_session_decrypt(&peripheral, pt, sizeof(pt), &pt_len, ct, ct_len) != 0);
 }
 
+static void test_wrong_direction_decrypt(void)
+{
+    uint8_t session_key[BLERPC_SESSION_KEY_SIZE];
+    assert(psa_generate_random(session_key, sizeof(session_key)) == PSA_SUCCESS);
+
+    const uint8_t plaintext[] = "direction test";
+    size_t pt_len = sizeof(plaintext) - 1;
+
+    uint8_t encrypted[256];
+    size_t enc_len;
+    assert(blerpc_crypto_encrypt_command(encrypted, sizeof(encrypted), &enc_len, session_key, 0,
+                                         BLERPC_DIRECTION_C2P, plaintext, pt_len) == 0);
+
+    /* Decrypting with wrong direction should fail (GCM auth) */
+    uint8_t decrypted[256];
+    size_t dec_len;
+    uint32_t counter_out;
+    assert(blerpc_crypto_decrypt_command(decrypted, sizeof(decrypted), &dec_len, &counter_out,
+                                         session_key, BLERPC_DIRECTION_P2C, encrypted,
+                                         enc_len) != 0);
+}
+
+static void test_tampered_ciphertext(void)
+{
+    uint8_t session_key[BLERPC_SESSION_KEY_SIZE];
+    assert(psa_generate_random(session_key, sizeof(session_key)) == PSA_SUCCESS);
+
+    const uint8_t plaintext[] = "tamper test";
+    size_t pt_len = sizeof(plaintext) - 1;
+
+    uint8_t encrypted[256];
+    size_t enc_len;
+    assert(blerpc_crypto_encrypt_command(encrypted, sizeof(encrypted), &enc_len, session_key, 0,
+                                         BLERPC_DIRECTION_C2P, plaintext, pt_len) == 0);
+
+    /* Flip a byte in the ciphertext (after counter, before tag) */
+    encrypted[BLERPC_COUNTER_SIZE + 1] ^= 0xFF;
+
+    uint8_t decrypted[256];
+    size_t dec_len;
+    uint32_t counter_out;
+    assert(blerpc_crypto_decrypt_command(decrypted, sizeof(decrypted), &dec_len, &counter_out,
+                                         session_key, BLERPC_DIRECTION_C2P, encrypted,
+                                         enc_len) != 0);
+}
+
+static void test_encrypt_buffer_too_small(void)
+{
+    uint8_t session_key[BLERPC_SESSION_KEY_SIZE];
+    assert(psa_generate_random(session_key, sizeof(session_key)) == PSA_SUCCESS);
+
+    const uint8_t plaintext[] = "buffer test";
+    size_t pt_len = sizeof(plaintext) - 1;
+
+    /* Buffer too small for encrypted output */
+    uint8_t small_buf[4];
+    size_t enc_len;
+    assert(blerpc_crypto_encrypt_command(small_buf, sizeof(small_buf), &enc_len, session_key, 0,
+                                         BLERPC_DIRECTION_C2P, plaintext, pt_len) != 0);
+}
+
+static void test_decrypt_buffer_too_small(void)
+{
+    uint8_t session_key[BLERPC_SESSION_KEY_SIZE];
+    assert(psa_generate_random(session_key, sizeof(session_key)) == PSA_SUCCESS);
+
+    const uint8_t plaintext[] = "buffer test for decrypt";
+    size_t pt_len = sizeof(plaintext) - 1;
+
+    uint8_t encrypted[256];
+    size_t enc_len;
+    assert(blerpc_crypto_encrypt_command(encrypted, sizeof(encrypted), &enc_len, session_key, 0,
+                                         BLERPC_DIRECTION_C2P, plaintext, pt_len) == 0);
+
+    /* Buffer too small for decrypted output */
+    uint8_t small_buf[2];
+    size_t dec_len;
+    uint32_t counter_out;
+    assert(blerpc_crypto_decrypt_command(small_buf, sizeof(small_buf), &dec_len, &counter_out,
+                                         session_key, BLERPC_DIRECTION_C2P, encrypted,
+                                         enc_len) != 0);
+}
+
+static void test_decrypt_too_short_data(void)
+{
+    uint8_t session_key[BLERPC_SESSION_KEY_SIZE];
+    assert(psa_generate_random(session_key, sizeof(session_key)) == PSA_SUCCESS);
+
+    /* Data shorter than ENCRYPTED_OVERHEAD should fail */
+    uint8_t short_data[BLERPC_ENCRYPTED_OVERHEAD - 1];
+    memset(short_data, 0, sizeof(short_data));
+    uint8_t out[256];
+    size_t out_len;
+    uint32_t counter_out;
+    assert(blerpc_crypto_decrypt_command(out, sizeof(out), &out_len, &counter_out, session_key,
+                                         BLERPC_DIRECTION_C2P, short_data,
+                                         sizeof(short_data)) != 0);
+}
+
+static void test_empty_payload_encrypt_decrypt(void)
+{
+    uint8_t session_key[BLERPC_SESSION_KEY_SIZE];
+    assert(psa_generate_random(session_key, sizeof(session_key)) == PSA_SUCCESS);
+
+    /* Encrypt empty payload */
+    uint8_t encrypted[256];
+    size_t enc_len;
+    assert(blerpc_crypto_encrypt_command(encrypted, sizeof(encrypted), &enc_len, session_key, 0,
+                                         BLERPC_DIRECTION_C2P, NULL, 0) == 0);
+    assert(enc_len == BLERPC_ENCRYPTED_OVERHEAD);
+
+    /* Decrypt empty payload */
+    uint8_t decrypted[256];
+    size_t dec_len;
+    uint32_t counter_out;
+    assert(blerpc_crypto_decrypt_command(decrypted, sizeof(decrypted), &dec_len, &counter_out,
+                                         session_key, BLERPC_DIRECTION_C2P, encrypted,
+                                         enc_len) == 0);
+    assert(dec_len == 0);
+}
+
+static void test_session_inactive(void)
+{
+    struct blerpc_crypto_session s;
+    memset(&s, 0, sizeof(s));
+    /* Session not active (active=0) */
+
+    const uint8_t msg[] = "inactive";
+    uint8_t out[256];
+    size_t out_len;
+
+    assert(blerpc_crypto_session_encrypt(&s, out, sizeof(out), &out_len, msg, sizeof(msg) - 1) !=
+           0);
+    assert(blerpc_crypto_session_decrypt(&s, out, sizeof(out), &out_len, msg, sizeof(msg) - 1) !=
+           0);
+}
+
+static void test_session_counter_overflow(void)
+{
+    uint8_t session_key[BLERPC_SESSION_KEY_SIZE];
+    assert(psa_generate_random(session_key, sizeof(session_key)) == PSA_SUCCESS);
+
+    struct blerpc_crypto_session s;
+    blerpc_crypto_session_init(&s, session_key, 1);
+
+    /* Set tx_counter to max — next encrypt should fail */
+    s.tx_counter = UINT32_MAX;
+    const uint8_t msg[] = "overflow";
+    uint8_t out[256];
+    size_t out_len;
+    assert(blerpc_crypto_session_encrypt(&s, out, sizeof(out), &out_len, msg, sizeof(msg) - 1) !=
+           0);
+}
+
+static void test_confirmation_wrong_key(void)
+{
+    uint8_t key1[BLERPC_SESSION_KEY_SIZE], key2[BLERPC_SESSION_KEY_SIZE];
+    assert(psa_generate_random(key1, sizeof(key1)) == PSA_SUCCESS);
+    assert(psa_generate_random(key2, sizeof(key2)) == PSA_SUCCESS);
+
+    uint8_t encrypted[BLERPC_CONFIRMATION_SIZE];
+    assert(blerpc_crypto_encrypt_confirmation(encrypted, key1,
+                                              (const uint8_t *)BLERPC_CONFIRM_CENTRAL) == 0);
+
+    /* Decrypting with different key should fail */
+    uint8_t decrypted[BLERPC_CONFIRM_LEN];
+    assert(blerpc_crypto_decrypt_confirmation(decrypted, key2, encrypted) != 0);
+}
+
+#if HAS_EDDSA
+static void test_kx_bad_step_payloads(void)
+{
+    struct blerpc_central_key_exchange central_kx;
+    struct blerpc_peripheral_key_exchange periph_kx;
+
+    uint8_t ed25519_seed[32];
+    assert(psa_generate_random(ed25519_seed, sizeof(ed25519_seed)) == PSA_SUCCESS);
+
+    assert(blerpc_central_kx_init(&central_kx) == 0);
+    assert(blerpc_peripheral_kx_init(&periph_kx, ed25519_seed) == 0);
+
+    /* Step 1 with wrong step byte */
+    uint8_t bad_step1[BLERPC_STEP1_SIZE];
+    bad_step1[0] = 0xFF;
+    assert(blerpc_peripheral_kx_process_step1(&periph_kx, bad_step1, BLERPC_STEP1_SIZE, NULL) != 0);
+
+    /* Step 1 too short */
+    uint8_t short_step1[2] = {BLERPC_KEY_EXCHANGE_STEP1, 0};
+    assert(blerpc_peripheral_kx_process_step1(&periph_kx, short_step1, sizeof(short_step1), NULL) !=
+           0);
+
+    /* Process step2 before step1 (wrong state) */
+    uint8_t dummy_step2[BLERPC_STEP2_SIZE];
+    dummy_step2[0] = BLERPC_KEY_EXCHANGE_STEP2;
+    assert(blerpc_central_kx_process_step2(&central_kx, dummy_step2, BLERPC_STEP2_SIZE, NULL,
+                                           NULL) != 0);
+
+    /* Finish before step2 processed (wrong state) */
+    uint8_t dummy_step4[BLERPC_STEP4_SIZE];
+    dummy_step4[0] = BLERPC_KEY_EXCHANGE_STEP4;
+    assert(blerpc_central_kx_finish(&central_kx, dummy_step4, BLERPC_STEP4_SIZE, NULL) != 0);
+}
+
+static void test_handle_step_bad_inputs(void)
+{
+    struct blerpc_peripheral_key_exchange kx;
+    uint8_t ed25519_seed[32];
+    assert(psa_generate_random(ed25519_seed, sizeof(ed25519_seed)) == PSA_SUCCESS);
+    assert(blerpc_peripheral_kx_init(&kx, ed25519_seed) == 0);
+
+    uint8_t out[256];
+    size_t out_len;
+    struct blerpc_crypto_session session;
+    bool established;
+
+    /* Empty payload */
+    assert(blerpc_peripheral_kx_handle_step(&kx, NULL, 0, out, sizeof(out), &out_len, &session,
+                                            &established) != 0);
+
+    /* Unknown step byte */
+    uint8_t unknown[2] = {0xFF, 0};
+    assert(blerpc_peripheral_kx_handle_step(&kx, unknown, sizeof(unknown), out, sizeof(out),
+                                            &out_len, &session, &established) != 0);
+
+    /* Step 3 before step 1 (wrong state) */
+    uint8_t step3_early[BLERPC_STEP3_SIZE];
+    step3_early[0] = BLERPC_KEY_EXCHANGE_STEP3;
+    assert(blerpc_peripheral_kx_handle_step(&kx, step3_early, BLERPC_STEP3_SIZE, out, sizeof(out),
+                                            &out_len, &session, &established) != 0);
+
+    /* Output buffer too small for step 2 */
+    uint8_t step1[BLERPC_STEP1_SIZE];
+    step1[0] = BLERPC_KEY_EXCHANGE_STEP1;
+    assert(psa_generate_random(step1 + 1, BLERPC_X25519_KEY_SIZE) == PSA_SUCCESS);
+    uint8_t tiny_out[4];
+    assert(blerpc_peripheral_kx_handle_step(&kx, step1, BLERPC_STEP1_SIZE, tiny_out,
+                                            sizeof(tiny_out), &out_len, &session,
+                                            &established) != 0);
+}
+
+static void test_peripheral_kx_reset(void)
+{
+    struct blerpc_central_key_exchange central_kx;
+    struct blerpc_peripheral_key_exchange periph_kx;
+
+    uint8_t ed25519_seed[32];
+    assert(psa_generate_random(ed25519_seed, sizeof(ed25519_seed)) == PSA_SUCCESS);
+
+    assert(blerpc_central_kx_init(&central_kx) == 0);
+    assert(blerpc_peripheral_kx_init(&periph_kx, ed25519_seed) == 0);
+
+    /* Step 1 */
+    uint8_t step1[BLERPC_STEP1_SIZE];
+    assert(blerpc_central_kx_start(&central_kx, step1) == 0);
+
+    uint8_t step2[BLERPC_STEP2_SIZE];
+    assert(blerpc_peripheral_kx_process_step1(&periph_kx, step1, BLERPC_STEP1_SIZE, step2) == 0);
+
+    /* Reset and verify state goes back to 0 */
+    blerpc_peripheral_kx_reset(&periph_kx);
+
+    /* Should be able to process step 1 again (new central kx needed) */
+    struct blerpc_central_key_exchange central_kx2;
+    assert(blerpc_central_kx_init(&central_kx2) == 0);
+
+    uint8_t step1_2[BLERPC_STEP1_SIZE];
+    assert(blerpc_central_kx_start(&central_kx2, step1_2) == 0);
+
+    uint8_t step2_2[BLERPC_STEP2_SIZE];
+    assert(blerpc_peripheral_kx_process_step1(&periph_kx, step1_2, BLERPC_STEP1_SIZE, step2_2) ==
+           0);
+}
+#endif /* HAS_EDDSA - kx edge cases */
+
 #if HAS_EDDSA
 static void test_central_key_exchange_full_flow(void)
 {
@@ -340,12 +614,27 @@ int main(void)
     TEST(test_confirmation_encrypt_decrypt);
     TEST(test_session_encrypt_decrypt);
     TEST(test_replay_detection);
+    TEST(test_wrong_direction_decrypt);
+    TEST(test_tampered_ciphertext);
+    TEST(test_encrypt_buffer_too_small);
+    TEST(test_decrypt_buffer_too_small);
+    TEST(test_decrypt_too_short_data);
+    TEST(test_empty_payload_encrypt_decrypt);
+    TEST(test_session_inactive);
+    TEST(test_session_counter_overflow);
+    TEST(test_confirmation_wrong_key);
 #if HAS_EDDSA
     TEST(test_central_key_exchange_full_flow);
     TEST(test_peripheral_handle_step);
+    TEST(test_kx_bad_step_payloads);
+    TEST(test_handle_step_bad_inputs);
+    TEST(test_peripheral_kx_reset);
 #else
     SKIP(test_central_key_exchange_full_flow, "Ed25519 not available");
     SKIP(test_peripheral_handle_step, "Ed25519 not available");
+    SKIP(test_kx_bad_step_payloads, "Ed25519 not available");
+    SKIP(test_handle_step_bad_inputs, "Ed25519 not available");
+    SKIP(test_peripheral_kx_reset, "Ed25519 not available");
 #endif
 
     printf("\n%d/%d tests passed.\n", tests_passed, tests_run);
