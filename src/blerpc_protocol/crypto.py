@@ -6,6 +6,7 @@ import os
 import struct
 import threading
 from collections.abc import Awaitable, Callable
+from typing import Protocol
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
@@ -495,24 +496,89 @@ class PeripheralKeyExchange:
         self._session_key = None
 
 
+class KnownKeyStore(Protocol):
+    """TOFU (Trust On First Use) store for peripheral Ed25519 identity keys.
+
+    The E2E handshake signature binds only the ephemeral X25519 keys, not the
+    peripheral's long-term identity key, so MitM resistance depends on the
+    central pinning that identity. Implementations supply platform-appropriate
+    persistence (file, keyring, …); this library owns the pinning policy and
+    logic (:func:`tofu_verify`).
+    """
+
+    def get(self, device_id: str) -> str | None:
+        """Return the stored hex-encoded Ed25519 public key, or None if unknown."""
+        ...
+
+    def put(self, device_id: str, hex_ed25519_pubkey: str) -> None:
+        """Persist the hex-encoded Ed25519 public key for ``device_id``."""
+        ...
+
+
+def tofu_verify(store: KnownKeyStore, device_id: str, ed25519_pubkey: bytes) -> bool:
+    """Verify a peripheral identity (TOFU) against ``store``.
+
+    Trust (and pin) the key on first use; reject a key that differs from the
+    pinned one on later connections.
+    """
+    hex_key = ed25519_pubkey.hex()
+    stored = store.get(device_id)
+    if stored is None:
+        store.put(device_id, hex_key)
+        return True
+    return stored == hex_key
+
+
 async def central_perform_key_exchange(
     send: Callable[[bytes], Awaitable[None]],
     receive: Callable[[], Awaitable[bytes]],
+    known_keys: KnownKeyStore | None = None,
+    device_id: str | None = None,
+    pin_identity: bool = True,
     verify_key_cb: Callable[[bytes], bool] | None = None,
 ) -> BlerpcCryptoSession:
     """Perform the 4-step central key exchange using send/receive callbacks.
 
+    Identity pinning is **on by default** (fail-closed): pass ``known_keys`` and
+    ``device_id`` to pin the peripheral's Ed25519 identity (TOFU), or set
+    ``pin_identity`` to False to opt out (encrypted but NOT authenticated).
+    ``verify_key_cb`` is an escape hatch for custom verification and takes
+    precedence when provided.
+
     Args:
         send: Async callback to send a key exchange payload.
         receive: Async callback to receive a key exchange payload.
-        verify_key_cb: Optional callback to verify peripheral's Ed25519 public key.
+        known_keys: TOFU store to pin the peripheral identity against.
+        device_id: Stable identifier of the peripheral, used as the pin key.
+        pin_identity: Pin the peripheral identity (default True).
+        verify_key_cb: Optional custom verification callback (takes precedence).
 
     Returns:
         An established BlerpcCryptoSession.
 
     Raises:
-        ValueError: If any step of the key exchange fails.
+        ValueError: If any step fails, or if pinning is on (the default) but no
+            ``known_keys``/``device_id`` and no ``verify_key_cb`` were supplied.
     """
+    effective_verify_cb: Callable[[bytes], bool] | None = None
+    if verify_key_cb is not None:
+        effective_verify_cb = verify_key_cb
+    elif pin_identity:
+        if known_keys is None or device_id is None:
+            raise ValueError(
+                "Identity pinning is on by default but no KnownKeyStore/device_id "
+                "was provided. Pass known_keys and device_id to pin the peripheral "
+                "identity (TOFU), or set pin_identity=False to opt out (encrypted "
+                "but unauthenticated)."
+            )
+        store = known_keys
+        dev_id = device_id
+
+        def _tofu_cb(pub: bytes) -> bool:
+            return tofu_verify(store, dev_id, pub)
+
+        effective_verify_cb = _tofu_cb
+
     kx = CentralKeyExchange()
 
     # Step 1: Send central's ephemeral public key
@@ -523,7 +589,7 @@ async def central_perform_key_exchange(
     step2 = await receive()
 
     # Step 2 -> Step 3: Verify and produce confirmation
-    step3 = kx.process_step2(step2, verify_key_cb=verify_key_cb)
+    step3 = kx.process_step2(step2, verify_key_cb=effective_verify_cb)
     await send(step3)
 
     # Step 4: Receive peripheral's confirmation

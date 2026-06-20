@@ -25,8 +25,10 @@ from blerpc_protocol.crypto import (
     BlerpcCrypto,
     BlerpcCryptoSession,
     CentralKeyExchange,
+    KnownKeyStore,
     PeripheralKeyExchange,
     central_perform_key_exchange,
+    tofu_verify,
 )
 
 __all__ = [
@@ -54,5 +56,7 @@ __all__ = [
     "make_timeout_request",
     "make_timeout_response",
     "PeripheralKeyExchange",
+    "KnownKeyStore",
     "central_perform_key_exchange",
+    "tofu_verify",
 ]

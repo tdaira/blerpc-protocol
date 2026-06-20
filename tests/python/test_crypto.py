@@ -31,6 +31,19 @@ from blerpc_protocol.crypto import (
 )
 
 
+class _InMemoryStore:
+    """In-memory KnownKeyStore for TOFU tests (structural match)."""
+
+    def __init__(self) -> None:
+        self.keys: dict[str, str] = {}
+
+    def get(self, device_id: str) -> str | None:
+        return self.keys.get(device_id)
+
+    def put(self, device_id: str, hex_ed25519_pubkey: str) -> None:
+        self.keys[device_id] = hex_ed25519_pubkey
+
+
 class TestControlCmdKeyExchange:
     def test_key_exchange_enum_value(self):
         assert ControlCmd.KEY_EXCHANGE == 0x6
@@ -717,7 +730,9 @@ class TestCentralPerformKeyExchange:
         async def mock_receive() -> bytes:
             return payloads.pop(0)
 
-        session = await central_perform_key_exchange(mock_send, mock_receive)
+        session = await central_perform_key_exchange(
+            mock_send, mock_receive, pin_identity=False
+        )
         assert session is not None
 
         # Verify session works
@@ -768,6 +783,54 @@ class TestCentralPerformKeyExchange:
         )
         assert session is not None
         assert seen_keys[0] == periph_ed_pub
+
+    async def _run_tofu(self, seed, store, device_id, pin_identity=True):
+        periph_kx = PeripheralKeyExchange(seed)
+        payloads = []
+
+        async def mock_send(payload: bytes) -> None:
+            response, _ = periph_kx.handle_step(payload)
+            payloads.append(response)
+
+        async def mock_receive() -> bytes:
+            return payloads.pop(0)
+
+        return await central_perform_key_exchange(
+            mock_send,
+            mock_receive,
+            known_keys=store,
+            device_id=device_id,
+            pin_identity=pin_identity,
+        )
+
+    @pytest.mark.asyncio
+    async def test_tofu_pins_then_matches(self):
+        seed, _ = BlerpcCrypto.generate_ed25519_keypair()
+        store = _InMemoryStore()
+        await self._run_tofu(seed, store, "dev-1")  # first use: pinned
+        assert len(store.keys) == 1
+        await self._run_tofu(seed, store, "dev-1")  # same key: matches
+
+    @pytest.mark.asyncio
+    async def test_tofu_rejects_changed_key(self):
+        store = _InMemoryStore()
+        seed1, _ = BlerpcCrypto.generate_ed25519_keypair()
+        await self._run_tofu(seed1, store, "dev-1")  # pin
+        seed2, _ = BlerpcCrypto.generate_ed25519_keypair()
+        with pytest.raises(ValueError, match="rejected"):
+            await self._run_tofu(seed2, store, "dev-1")
+
+    @pytest.mark.asyncio
+    async def test_fail_closed_without_store(self):
+        seed, _ = BlerpcCrypto.generate_ed25519_keypair()
+        with pytest.raises(ValueError, match="pinning"):
+            await self._run_tofu(seed, None, None)
+
+    @pytest.mark.asyncio
+    async def test_opt_out_skips_pinning(self):
+        seed, _ = BlerpcCrypto.generate_ed25519_keypair()
+        session = await self._run_tofu(seed, None, None, pin_identity=False)
+        assert session is not None
 
 
 class TestKeyExchangeStateValidation:
