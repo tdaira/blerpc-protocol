@@ -78,4 +78,4 @@ Headers are in `c/include/blerpc_protocol/`. See [container.h](c/include/blerpc_
 
 ## License
 
-[LGPL-3.0](LICENSE) with [Static Linking Exception](LICENSING_EXCEPTION)
+[Apache-2.0](LICENSE)
